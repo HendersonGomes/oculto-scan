@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools==75.3.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oculto-scan"
+version = "0.1.0"
+description = "Scanner offline de vazamento de dados em planilhas de obra (.xlsx/.xlsm)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [{name = "oculto-scan contributors"}]
+keywords = ["xlsx", "lgpd", "construction", "dlp", "spreadsheet"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Natural Language :: Portuguese (Brazilian)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+dependencies = [
+    "defusedxml==0.7.1",
+    "tarja==0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.3",
+    "ruff==0.6.9",
+]
+
+[project.scripts]
+oculto-scan = "oculto_scan.cli:console_main"
+
+[project.urls]
+Homepage = "https://github.com/HendersonGomes/oculto-scan"
+Source = "https://github.com/HendersonGomes/oculto-scan"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
