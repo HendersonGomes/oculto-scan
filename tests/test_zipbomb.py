@@ -1,8 +1,7 @@
 import zipfile
 
-from tests.workbook_factory import write_zip
-
 from oculto_scan.cli import main
+from tests.workbook_factory import write_zip
 
 
 def test_zip_bomb_is_rejected(tmp_path, capsys):

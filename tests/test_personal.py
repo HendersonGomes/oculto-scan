@@ -1,8 +1,8 @@
 import tarja
-from tests.workbook_factory import build_workbook, make_cpf, make_pis
 
 from oculto_scan.analyze import analyze
 from oculto_scan.workbook import load_workbook
+from tests.workbook_factory import build_workbook, make_cpf, make_pis
 
 CPF_A = make_cpf("529982247")
 CPF_B = make_cpf("390533447")

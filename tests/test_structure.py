@@ -1,7 +1,6 @@
-from tests.workbook_factory import build_workbook
-
 from oculto_scan.analyze import analyze
 from oculto_scan.workbook import load_workbook
+from tests.workbook_factory import build_workbook
 
 
 def test_hidden_and_very_hidden_sheets(tmp_path):

@@ -1,8 +1,7 @@
-from tests.workbook_factory import build_workbook
-
 from oculto_scan.analyze import analyze
 from oculto_scan.secrets import find_secrets
 from oculto_scan.workbook import load_workbook
+from tests.workbook_factory import build_workbook
 
 AWS = "AKIAIOSFODNN7EXAMPLE"
 GITHUB = "ghp_" + "a1" * 18

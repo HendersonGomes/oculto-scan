@@ -1,7 +1,6 @@
-from tests.workbook_factory import build_workbook
-
 from oculto_scan.formulas import parse_formula
 from oculto_scan.workbook import load_workbook
+from tests.workbook_factory import build_workbook
 
 
 def test_parse_hidden_sheet_constant_and_external():

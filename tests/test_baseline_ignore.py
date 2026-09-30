@@ -1,8 +1,7 @@
 import json
 
-from tests.workbook_factory import build_workbook, make_cpf
-
 from oculto_scan.cli import main
+from tests.workbook_factory import build_workbook, make_cpf
 
 CPF = make_cpf("529982247")
 
