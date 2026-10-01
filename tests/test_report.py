@@ -39,7 +39,7 @@ def test_html_document_escapes_spreadsheet_text_and_hides_raw_values():
     assert "<!DOCTYPE html>" in page
     assert "@media print" in page
     assert "oculto-scan" in page
-    assert "0.1.8" in page
+    assert "0.1.9" in page
     assert DISCLAIMER in page
     assert 'class="resumo"' in page
     assert ">1</strong><span>médio</span>" in page
@@ -117,7 +117,7 @@ def test_json_shape_is_unchanged():
         "message",
         "value",
     }
-    assert payload["version"] == "0.1.8"
+    assert payload["version"] == "0.1.9"
     assert payload["mapa_da_rede"] == []
     assert "SEGREDO-CRU" not in raw
     assert "\033[" not in raw
