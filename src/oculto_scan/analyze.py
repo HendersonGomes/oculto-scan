@@ -10,10 +10,10 @@ from oculto_scan.formulas import (
     parse_formula,
     reference_is_hidden,
 )
-from oculto_scan.masking import mask_formula, mask_path, mask_secret, mask_text
+from oculto_scan.masking import mask_formula, mask_link, mask_secret, mask_text
 from oculto_scan.models import Finding, Workbook
 from oculto_scan.personal import personal_findings
-from oculto_scan.refs import contiguous_groups, format_group, index_to_col
+from oculto_scan.refs import contiguous_groups, format_group, index_to_col, reference_axes
 from oculto_scan.secrets import find_high_entropy, find_secrets
 
 _GUID = re.compile(r"^\{?[0-9a-fA-F-]{32,}\}?$")
@@ -142,7 +142,7 @@ def _structure(workbook: Workbook, file_label: str) -> list[Finding]:
                     ),
                 )
             )
-        for start, end in contiguous_groups(sheet.hidden_rows):
+        for start, end in contiguous_groups(sheet.hidden_rows) + list(sheet.hidden_row_spans):
             findings.append(
                 Finding(
                     file=file_label,
@@ -157,7 +157,7 @@ def _structure(workbook: Workbook, file_label: str) -> list[Finding]:
                     ),
                 )
             )
-        for start, end in contiguous_groups(sheet.hidden_cols):
+        for start, end in contiguous_groups(sheet.hidden_cols) + list(sheet.hidden_col_spans):
             findings.append(
                 Finding(
                     file=file_label,
@@ -214,7 +214,7 @@ def _structure(workbook: Workbook, file_label: str) -> list[Finding]:
                         "Nome definido aponta para área oculta ou para outra pasta. "
                         "Uma célula visível pode usar esse nome sem mostrar a origem."
                     ),
-                    evidence_masked=mask_path(mask_formula(shown)),
+                    evidence_masked=mask_link(mask_formula(shown)),
                     evidence_raw=defined.formula,
                 )
             )
@@ -261,7 +261,7 @@ def _structure(workbook: Workbook, file_label: str) -> list[Finding]:
                     "Caminhos locais (C:\\Users\\...) identificam a máquina e podem "
                     "apontar para uma planilha de custo que não deveria sair."
                 ),
-                evidence_masked=mask_path(link),
+                evidence_masked=mask_link(link),
                 evidence_raw=link,
             )
         )
@@ -287,7 +287,8 @@ def _structure(workbook: Workbook, file_label: str) -> list[Finding]:
     for key, value in workbook.metadata.items():
         folded = key.casefold()
         base = folded.split(":", 1)[-1]
-        identity = folded in _IDENTITY or any(token in base for token in _CUSTOM_IDENTITY)
+        identity = folded in _IDENTITY or any(token in folded or token in base for token in _CUSTOM_IDENTITY)
+        email = "@" in value and "email" in folded
         findings.append(
             Finding(
                 file=file_label,
@@ -297,16 +298,158 @@ def _structure(workbook: Workbook, file_label: str) -> list[Finding]:
                 type_label="metadado",
                 risk="medio" if identity else "info",
                 message=(
-                    "Metadado do arquivo. Autor, empresa e último editor identificam "
-                    "quem preparou a proposta e, entre licitantes, são indício de "
-                    "autoria compartilhada — não prova de conluio."
-                    if identity
-                    else "Metadado descritivo do arquivo (título, assunto ou semelhante)."
+                    "E-mail de quem comentou, lido de persons.xml. "
+                    "Identifica a pessoa mesmo quando o comentário não mostra o endereço."
+                    if email
+                    else (
+                        "Metadado do arquivo. Autor, empresa e último editor identificam "
+                        "quem preparou a proposta e, entre licitantes, são indício de "
+                        "autoria compartilhada — não prova de conluio."
+                        if identity
+                        else "Metadado descritivo do arquivo (título, assunto ou semelhante)."
+                    )
                 ),
-                evidence_masked=mask_text(value),
+                evidence_masked=f"e-mail ({len(value)} caracteres)" if email else mask_text(value),
                 evidence_raw=value,
             )
         )
+    findings.extend(_concealment(workbook, file_label))
+    return findings
+
+
+_HIDDEN_FORMATS = {";;;", ";;;@"}
+
+
+def _format_hides(code: str | None) -> bool:
+    if not code:
+        return False
+    return code.replace(" ", "").replace("\\", "") in _HIDDEN_FORMATS
+
+
+def _inside_print(areas: list[tuple[int, int, int, int]], row: int, col: int) -> bool:
+    return any(r1 <= row <= r2 and c1 <= col <= c2 for r1, c1, r2, c2 in areas)
+
+
+def _ref_outside(ref: str, areas: list[tuple[int, int, int, int]]) -> bool:
+    axes = reference_axes(ref)
+    if axes is None:
+        return False
+    rows, cols = axes
+    if rows is None or cols is None:
+        return True
+    r1, r2 = rows
+    c1, c2 = cols
+
+    def covered(row: int, col: int) -> bool:
+        return _inside_print(areas, row, col)
+
+    return not (covered(r1, c1) and covered(r2, c2) and covered(r1, c2) and covered(r2, c1))
+
+
+def _concealment(workbook: Workbook, file_label: str) -> list[Finding]:
+    """Content hidden without the Hide command: format, size, or print area."""
+    findings: list[Finding] = []
+    for sheet in workbook.sheets:
+        areas = sheet.print_areas
+        for cell in sheet.cells:
+            has_content = bool((cell.value and str(cell.value).strip()) or cell.formula)
+            if not has_content:
+                continue
+            if _format_hides(cell.number_format):
+                findings.append(
+                    Finding(
+                        file=file_label,
+                        sheet=sheet.name,
+                        cell=cell.ref,
+                        rule="formato-oculto",
+                        type_label="formato oculto",
+                        risk="alto",
+                        message=(
+                            "Formato numérico com as seções vazias (;;; ou ;;;@). "
+                            "A célula tem conteúdo, mas a tela e a impressão ficam em branco."
+                        ),
+                        evidence_masked=cell.number_format,
+                        evidence_raw=cell.value or cell.formula,
+                    )
+                )
+            if cell.col in sheet.narrow_cols:
+                findings.append(
+                    Finding(
+                        file=file_label,
+                        sheet=sheet.name,
+                        cell=cell.ref,
+                        rule="largura-minima",
+                        type_label="coluna estreita",
+                        risk="medio",
+                        message=(
+                            "Coluna com largura perto de zero e com conteúdo. "
+                            "Não usa o comando Ocultar, mas some na tela."
+                        ),
+                    )
+                )
+            if cell.row in sheet.short_rows:
+                findings.append(
+                    Finding(
+                        file=file_label,
+                        sheet=sheet.name,
+                        cell=cell.ref,
+                        rule="altura-minima",
+                        type_label="linha baixa",
+                        risk="medio",
+                        message=(
+                            "Linha com altura perto de zero e com conteúdo. "
+                            "Não usa o comando Ocultar, mas some na tela."
+                        ),
+                    )
+                )
+            if areas is not None and cell.row and cell.col and not _inside_print(areas, cell.row, cell.col):
+                findings.append(
+                    Finding(
+                        file=file_label,
+                        sheet=sheet.name,
+                        cell=cell.ref,
+                        rule="fora-impressao",
+                        type_label="fora da impressão",
+                        risk="medio",
+                        message=(
+                            "Célula com conteúdo fora da área de impressão. "
+                            "Quem imprime ou exporta PDF não vê esse valor."
+                        ),
+                    )
+                )
+            if cell.formula and cell_is_visible(sheet, cell.row, cell.col):
+                info = parse_formula(cell.formula, {item.name for item in workbook.defined_names})
+                outside = False
+                for target_name, ref in info.sheet_refs:
+                    target = workbook.sheet_by_name(target_name)
+                    if (
+                        target is not None
+                        and target.print_areas is not None
+                        and ref
+                        and _ref_outside(ref, target.print_areas)
+                    ):
+                        outside = True
+                if sheet.print_areas is not None:
+                    for ref in info.local_refs:
+                        if _ref_outside(ref, sheet.print_areas):
+                            outside = True
+                if outside:
+                    findings.append(
+                        Finding(
+                            file=file_label,
+                            sheet=sheet.name,
+                            cell=cell.ref,
+                            rule="formula-fora-impressao",
+                            type_label="fórmula fora da impressão",
+                            risk="alto",
+                            message=(
+                                "Fórmula visível que puxa valor de fora da área de impressão. "
+                                "O número aparece, mas a origem não sai na impressão."
+                            ),
+                            evidence_masked=mask_formula(cell.formula),
+                            evidence_raw=cell.formula,
+                        )
+                    )
     return findings
 
 
@@ -332,7 +475,7 @@ def _formulas(workbook: Workbook, file_label: str) -> list[Finding]:
                             "O valor pode depender de um arquivo que não será enviado, "
                             "ou o caminho pode identificar o autor."
                         ),
-                        evidence_masked=mask_path(mask_formula(cell.formula)),
+                        evidence_masked=mask_link(mask_formula(cell.formula)),
                         evidence_raw=cell.formula,
                     )
                 )
@@ -404,6 +547,10 @@ def _secrets(workbook: Workbook, file_label: str, *, entropy: bool) -> list[Find
         for comment in sheet.comments:
             if comment.text:
                 blobs.append((sheet.name, comment.ref, comment.text))
+    for label, cell in workbook.external_cache:
+        text = "\n".join(piece for piece in (cell.value, cell.formula) if piece)
+        if text:
+            blobs.append((label, cell.ref, text))
     for key, value in workbook.metadata.items():
         blobs.append(("", key, value))
 

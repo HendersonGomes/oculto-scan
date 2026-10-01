@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from oculto_scan import __version__
-from oculto_scan.report import render_html, render_json, render_text, stdout_wants_color
+from oculto_scan.report import (
+    force_utf8_stdio,
+    render_html,
+    render_json,
+    render_text,
+    stdout_wants_color,
+    write_private_text,
+)
 from oculto_scan.scanner import scan_files
 
 _EPILOG = """\
@@ -28,7 +36,8 @@ exemplos:
 códigos de saída:
   0  nenhum achado no nível de --fail-on (padrão: alto)
   1  há achado nesse nível ou acima
-  2  caminho ausente, ignore/linha de base inválidos
+  2  caminho ausente, ignore/linha de base inválidos, ou --show recusado no CI
+  3  não analisado (ilegível, senha, corrompido, .xls/.csv ou acima do limite)
 
 nenhum achado não significa arquivo limpo.
 """
@@ -44,7 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("caminhos", nargs="*", default=["."], help="arquivo ou pasta (varredura recursiva)")
+    parser.add_argument(
+        "caminhos",
+        nargs="*",
+        help="arquivo ou pasta. Sem caminho, nada é varrido (a ajuda é mostrada)",
+    )
     parser.add_argument(
         "--format",
         dest="formato",
@@ -93,11 +106,29 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="liga detecção por entropia (desligada por padrão; muitos falso-positivos)",
     )
+    parser.add_argument(
+        "--max-mb",
+        type=int,
+        default=None,
+        metavar="N",
+        help="analisa de propósito um arquivo maior que o limite padrão (64 MiB no total, 32 MiB por parte)",
+    )
     parser.add_argument("--version", action="version", version=f"oculto-scan {__version__}")
     return parser
 
 
+def show_is_blocked() -> str | None:
+    """Refuse --show on a CI runner, where the log would keep the raw values."""
+    if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+        return (
+            "O --show foi recusado porque CI ou GITHUB_ACTIONS está definido. "
+            "Neste ambiente o relatório não revela CPF, senha nem outros valores."
+        )
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
+    force_utf8_stdio()
     args_list = list(sys.argv[1:] if argv is None else argv)
     if args_list and args_list[0] == "diff":
         from oculto_scan.diff import run_diff
@@ -105,6 +136,18 @@ def main(argv: list[str] | None = None) -> int:
         return run_diff(args_list[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not args.caminhos:
+        parser.print_help(sys.stderr)
+        print(
+            "Informe o arquivo ou a pasta. Sem caminho, a pasta atual não é varrida.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.show:
+        blocked = show_is_blocked()
+        if blocked:
+            print(blocked, file=sys.stderr)
+            return 2
     baseline: Path | None = args.baseline
     update = False
     if args.update_baseline is not None:
@@ -125,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         baseline_path=baseline,
         update=update,
         entropy=args.entropy,
+        max_mb=args.max_mb,
     )
     for message in result.messages:
         print(message, file=sys.stderr)
@@ -141,8 +185,8 @@ def main(argv: list[str] | None = None) -> int:
             target = Path("oculto-scan-relatorio-revelado.html")
         else:
             target = Path("oculto-scan-relatorio.html")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
+        write_private_text(
+            target,
             render_html(
                 result.findings,
                 ignored=result.ignored,
@@ -150,7 +194,6 @@ def main(argv: list[str] | None = None) -> int:
                 files=result.files,
                 show=args.show,
             ),
-            encoding="utf-8",
         )
         print(f"Relatório salvo em {target}")
     else:

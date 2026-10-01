@@ -39,6 +39,13 @@ _ACCOUNT_VALUE = re.compile(r"^\d{3,14}(?:-\d)?$")
 _BANK_CODE = re.compile(r"^\d{1,4}$")
 
 _ENTITIES = ("BR_CPF", "BR_CNPJ", "BR_NIS")
+# A column headed with one of these is not a CPF column, even if the sheet
+# name or a label on the row would suggest it. Phone is not inferred from a
+# leading 9: a valid CPF can look like that.
+_CPF_CANCEL = re.compile(
+    r"(?i)\b(?:tel|telefone|fone|celular|contato|whatsapp|c[oó]digos?|c[oó]d\.?|quantidades?)\b"
+)
+_LOOSE_DIGITS = re.compile(r"(?<!\d)(\d{10,11})(?!\d)")
 
 
 @dataclass
@@ -49,6 +56,8 @@ class _Spot:
     col: int | None
     text: str
     context: str
+    header: str | None = None
+    cpf_blocked: bool = False
 
 
 @dataclass
@@ -59,22 +68,51 @@ class _IdHit:
     contextual: bool
 
 
+def _text_cells(sheet_cells: list) -> list:
+    return [cell for cell in sheet_cells if cell.value and not _looks_numeric(cell.value)]
+
+
+def _nearest_header(cells: list, col: int, row: int) -> str | None:
+    above = [cell for cell in cells if cell.col == col and cell.row < row]
+    if not above:
+        return None
+    return max(above, key=lambda cell: cell.row).value
+
+
+def _nearest_left(cells: list, col: int, row: int) -> str:
+    left = [cell for cell in cells if cell.row == row and cell.col < col]
+    if not left:
+        return ""
+    return max(left, key=lambda cell: cell.col).value
+
+
 def _spots(workbook: Workbook) -> list[_Spot]:
     spots: list[_Spot] = []
-    for sheet in workbook.sheets:
-        headers: dict[int, list[str]] = {}
-        left_label: dict[int, str] = {}
-        for cell in sheet.cells:
-            if cell.value and cell.row <= 3 and not _looks_numeric(cell.value):
-                headers.setdefault(cell.col, []).append(cell.value)
-            if cell.value and cell.col == 1 and not _looks_numeric(cell.value):
-                left_label[cell.row] = cell.value
+    sheets = list(workbook.sheets)
+    if workbook.external_cache:
+        from oculto_scan.models import Sheet
+
+        sheets.append(
+            Sheet(
+                name="vínculo externo",
+                state="visible",
+                cells=[cell for _label, cell in workbook.external_cache],
+            )
+        )
+    for sheet in sheets:
+        labels = _text_cells(sheet.cells)
         for cell in sheet.cells:
             chunks = [piece for piece in (cell.value, cell.formula) if piece]
             if not chunks:
                 continue
-            header = " ".join(headers.get(cell.col, []))
-            label = left_label.get(cell.row, "")
+            header = _nearest_header(labels, cell.col, cell.row) if cell.row else None
+            if header:
+                context = header
+                blocked = bool(_CPF_CANCEL.search(header))
+            else:
+                label = _nearest_left(labels, cell.col, cell.row) if cell.row else ""
+                context = " ".join(piece for piece in (label, sheet.name) if piece)
+                blocked = False
             spots.append(
                 _Spot(
                     sheet=sheet.name,
@@ -82,7 +120,9 @@ def _spots(workbook: Workbook) -> list[_Spot]:
                     row=cell.row,
                     col=cell.col,
                     text="\n".join(chunks),
-                    context=" ".join((header, label, sheet.name)),
+                    context=context,
+                    header=header,
+                    cpf_blocked=blocked,
                 )
             )
         for comment in sheet.comments:
@@ -110,11 +150,24 @@ def _contextual(pattern: re.Pattern[str], spot: _Spot, tarja_context: bool) -> b
     return tarja_context or bool(pattern.search(spot.context)) or bool(pattern.search(spot.text))
 
 
+def _cpf_digits_ok(digits: str) -> bool:
+    if len(digits) != 11 or not digits.isdigit() or digits == digits[0] * 11:
+        return False
+
+    def _dv(base: str) -> int:
+        total = sum(int(char) * weight for char, weight in zip(base, range(len(base) + 1, 1, -1)))
+        rest = total % 11
+        return 0 if rest < 2 else 11 - rest
+
+    return _dv(digits[:9]) == int(digits[9]) and _dv(digits[:10]) == int(digits[10])
+
+
 def _collect(workbook: Workbook) -> list[_IdHit]:
     hits: list[_IdHit] = []
     for spot in _spots(workbook):
         if not spot.text or not spot.text.strip():
             continue
+        seen_digits: set[str] = set()
         matches = tarja.find(spot.text[:100_000], entities=_ENTITIES)
         for match in matches:
             if not match.valid_dv:
@@ -123,12 +176,26 @@ def _collect(workbook: Workbook) -> list[_IdHit]:
             if entity is None:
                 continue
             if entity == "cpf":
-                contextual = _contextual(_CPF_CONTEXT, spot, bool(match.has_context))
+                seen_digits.add(re.sub(r"\D", "", match.value))
+                contextual = False if spot.cpf_blocked else _contextual(_CPF_CONTEXT, spot, bool(match.has_context))
             elif entity == "pis":
                 contextual = _contextual(_PIS_CONTEXT, spot, bool(match.has_context))
             else:
                 contextual = True
             hits.append(_IdHit(spot=spot, entity=entity, raw=match.value, contextual=contextual))
+        if spot.cpf_blocked:
+            continue
+        contextual = _contextual(_CPF_CONTEXT, spot, False)
+        if not contextual:
+            continue
+        for match in _LOOSE_DIGITS.finditer(spot.text):
+            raw_digits = match.group(1)
+            candidate = raw_digits if len(raw_digits) == 11 else "0" + raw_digits
+            if candidate in seen_digits or not _cpf_digits_ok(candidate):
+                continue
+            seen_digits.add(candidate)
+            shown = candidate if len(raw_digits) == 11 else raw_digits
+            hits.append(_IdHit(spot=spot, entity="cpf", raw=shown, contextual=True))
     return hits
 
 
@@ -215,15 +282,15 @@ def _finding(file_label: str, hit: _IdHit, risk: str, count: int) -> Finding:
     )
 
 
-def _header_map(workbook: Workbook) -> dict[tuple[str, int], str]:
-    headers: dict[tuple[str, int], str] = {}
+def _header_map(workbook: Workbook) -> dict[tuple[str, int, int], str]:
+    """Nearest text above each content cell, keyed by sheet, column and row."""
+    headers: dict[tuple[str, int, int], str] = {}
     for sheet in workbook.sheets:
-        buckets: dict[int, list[str]] = {}
+        labels = _text_cells(sheet.cells)
         for cell in sheet.cells:
-            if cell.row <= 3 and cell.value and not _looks_numeric(cell.value):
-                buckets.setdefault(cell.col, []).append(cell.value)
-        for col, parts in buckets.items():
-            headers[(sheet.name, col)] = " ".join(parts)
+            header = _nearest_header(labels, cell.col, cell.row)
+            if header:
+                headers[(sheet.name, cell.col, cell.row)] = header
     return headers
 
 
@@ -236,7 +303,7 @@ def _bank_findings(workbook: Workbook, file_label: str) -> list[Finding]:
         for cell in sheet.cells:
             if not cell.value:
                 continue
-            header = headers.get((sheet.name, cell.col), "")
+            header = headers.get((sheet.name, cell.col, cell.row), "")
             value = cell.value.strip()
             kind = _bank_kind(header, value)
             if kind is None:

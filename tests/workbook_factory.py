@@ -74,37 +74,38 @@ def _ref_row(ref: str) -> int:
     return int(digits or "1")
 
 
-def _cell_xml(cell: dict, shared: list[str] | None = None) -> str:
+def _cell_xml(cell: dict, shared: list[str] | None = None, *, style: str = "") -> str:
     ref = cell["ref"]
-    shared = cell.get("shared")
+    shared_formula = cell.get("shared")
     formula = cell.get("formula")
     value = cell.get("value")
     pieces: list[str] = []
-    if shared is not None or formula is not None:
+    style_attr = f' s="{style}"' if style else ""
+    if shared_formula is not None or formula is not None:
         attrs = ""
-        if shared is not None:
-            attrs = f' t="shared" si="{shared}"'
+        if shared_formula is not None:
+            attrs = f' t="shared" si="{shared_formula}"'
             if cell.get("shared_ref"):
                 attrs += f' ref="{cell["shared_ref"]}"'
         body = xml_escape(formula) if formula else ""
         pieces.append(f"<f{attrs}>{body}</f>")
     if isinstance(value, (int, float)):
         pieces.append(f"<v>{value}</v>")
-        return f'<c r="{ref}">{"".join(pieces)}</c>'
+        return f'<c r="{ref}"{style_attr}>{"".join(pieces)}</c>'
     if value is None:
-        return f'<c r="{ref}">{"".join(pieces)}</c>'
+        return f'<c r="{ref}"{style_attr}>{"".join(pieces)}</c>'
     if cell.get("number"):
         pieces.append(f"<v>{xml_escape(str(value))}</v>")
-        return f'<c r="{ref}">{"".join(pieces)}</c>'
-    if shared is not None and formula is None:
+        return f'<c r="{ref}"{style_attr}>{"".join(pieces)}</c>'
+    if shared is not None and formula is None and shared_formula is None:
         index = len(shared)
         shared.append(str(value))
-        return f'<c r="{ref}" t="s"><v>{index}</v></c>'
+        return f'<c r="{ref}" t="s"{style_attr}><v>{index}</v></c>'
     pieces.append(f'<is><t xml:space="preserve">{xml_escape(str(value))}</t></is>')
-    return f'<c r="{ref}" t="inlineStr">{"".join(pieces)}</c>'
+    return f'<c r="{ref}" t="inlineStr"{style_attr}>{"".join(pieces)}</c>'
 
 
-def _sheet_xml(sheet: dict, shared: list[str] | None = None) -> str:
+def _sheet_xml(sheet: dict, shared: list[str] | None = None, styles: dict[str, str] | None = None) -> str:
     hidden_rows = set(sheet.get("hidden_rows") or [])
     hidden_cols = sheet.get("hidden_cols") or []
     cells = sheet.get("cells") or []
@@ -113,17 +114,24 @@ def _sheet_xml(sheet: dict, shared: list[str] | None = None) -> str:
         rows.setdefault(_ref_row(cell["ref"]), []).append(cell)
     for row in hidden_rows:
         rows.setdefault(row, [])
-    col_xml = ""
-    if hidden_cols:
-        cols = []
-        for index in hidden_cols:
-            cols.append(f'<col min="{index}" max="{index}" hidden="1" width="0"/>')
-        col_xml = "<cols>" + "".join(cols) + "</cols>"
+    row_heights = sheet.get("row_heights") or {}
+    cols = []
+    for index in hidden_cols:
+        cols.append(f'<col min="{index}" max="{index}" hidden="1" width="0"/>')
+    for index, width in (sheet.get("col_widths") or {}).items():
+        cols.append(f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>')
+    col_xml = ("<cols>" + "".join(cols) + "</cols>") if cols else ""
     row_xml = []
     for row in sorted(rows):
         hidden = ' hidden="1"' if row in hidden_rows else ""
-        body = "".join(_cell_xml(cell, shared) for cell in rows[row])
-        row_xml.append(f'<row r="{row}"{hidden}>{body}</row>')
+        height = ""
+        if row in row_heights:
+            height = f' ht="{row_heights[row]}" customHeight="1"'
+        body = "".join(
+            _cell_xml(cell, shared, style=styles.get(cell.get("num_fmt", ""), "") if styles else "")
+            for cell in rows[row]
+        )
+        row_xml.append(f'<row r="{row}"{hidden}{height}>{body}</row>')
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
@@ -179,6 +187,8 @@ def build_workbook(
     hyperlink: dict | None = None,
     vba_blob: bytes | None = None,
     use_shared_strings: bool = False,
+    persons: list[dict] | None = None,
+    external_cache: list[dict] | None = None,
 ) -> Path:
     """Write a minimal OOXML workbook. ``sheets`` entries accept cells, comments, threads."""
     metadata = metadata or {}
@@ -201,10 +211,38 @@ def build_workbook(
     sheet_nodes = []
     next_rel = 1
     shared: list[str] | None = [] if use_shared_strings else None
+    formats = []
+    for sheet in sheets:
+        for cell in sheet.get("cells") or []:
+            code = cell.get("num_fmt")
+            if code and code not in formats:
+                formats.append(code)
+    style_index = {code: str(index + 1) for index, code in enumerate(formats)}
+    if formats:
+        num_fmts = "".join(
+            f'<numFmt numFmtId="{164 + index}" formatCode="{xml_escape(code)}"/>'
+            for index, code in enumerate(formats)
+        )
+        xfs = '<xf numFmtId="0"/>' + "".join(
+            f'<xf numFmtId="{164 + index}" applyNumberFormat="1"/>' for index in range(len(formats))
+        )
+        parts["xl/styles.xml"] = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            f"<numFmts count=\"{len(formats)}\">{num_fmts}</numFmts>"
+            f'<cellXfs count="{len(formats) + 1}">{xfs}</cellXfs>'
+            "</styleSheet>"
+        )
+        overrides.append(("/xl/styles.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"))
+        workbook_rels.append(
+            '<Relationship Id="rIdStyles" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
+            'Target="styles.xml"/>'
+        )
 
     for index, sheet in enumerate(sheets, start=1):
         part = f"xl/worksheets/sheet{index}.xml"
-        parts[part] = _sheet_xml(sheet, shared)
+        parts[part] = _sheet_xml(sheet, shared, style_index)
         overrides.append(
             (
                 f"/{part}",
@@ -406,6 +444,34 @@ def build_workbook(
         )
         + "</Relationships>"
     )
+    if persons:
+        items = []
+        for index, person in enumerate(persons):
+            items.append(
+                f'<person displayName="{xml_escape(person.get("name", "Pessoa"))}" '
+                f'id="{{00000000-0000-0000-0000-0000000000{index:02d}}}" '
+                f'userId="{xml_escape(person.get("userId", ""))}"/>'
+            )
+        parts["xl/persons/person.xml"] = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<personList xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments">'
+            + "".join(items)
+            + "</personList>"
+        )
+    if external_cache:
+        cells = []
+        for item in external_cache:
+            cells.append(
+                f'<row r="1"><cell r="{xml_escape(item["ref"])}" t="str">'
+                f'<v>{xml_escape(str(item["value"]))}</v></cell></row>'
+            )
+        parts["xl/externalLinks/externalLink1.xml"] = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            "<externalBook><sheetDataSet><sheetData>"
+            + "".join(cells)
+            + "</sheetData></sheetDataSet></externalBook></externalLink>"
+        )
     override_xml = "".join(
         f'<Override PartName="{part}" ContentType="{content}"/>' for part, content in overrides
     )

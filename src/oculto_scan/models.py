@@ -38,6 +38,7 @@ class Cell:
     col: int
     formula: str | None = None
     value: str | None = None
+    number_format: str | None = None
 
 
 @dataclass
@@ -64,10 +65,27 @@ class Sheet:
     hidden_rows: set[int] = field(default_factory=set)
     hidden_cols: set[int] = field(default_factory=set)
     comments: list[Comment] = field(default_factory=list)
+    # Spans too large to store as a set. Membership checks consult both.
+    hidden_row_spans: list[tuple[int, int]] = field(default_factory=list)
+    hidden_col_spans: list[tuple[int, int]] = field(default_factory=list)
+    narrow_cols: set[int] = field(default_factory=set)
+    short_rows: set[int] = field(default_factory=set)
+    # None: the sheet has no print area. A list means one was defined.
+    print_areas: list[tuple[int, int, int, int]] | None = None
 
     @property
     def visible(self) -> bool:
         return self.state == "visible"
+
+    def row_is_hidden(self, row: int) -> bool:
+        if row in self.hidden_rows:
+            return True
+        return any(start <= row <= end for start, end in self.hidden_row_spans)
+
+    def col_is_hidden(self, col: int) -> bool:
+        if col in self.hidden_cols:
+            return True
+        return any(start <= col <= end for start, end in self.hidden_col_spans)
 
 
 @dataclass
@@ -78,6 +96,8 @@ class Workbook:
     external_links: list[str] = field(default_factory=list)
     has_vba: bool = False
     metadata: dict[str, str] = field(default_factory=dict)
+    # Cached values from externalLinks sheetDataSet. Not real sheets.
+    external_cache: list[tuple[str, Cell]] = field(default_factory=list)
 
     def sheet_by_name(self, name: str) -> Sheet | None:
         folded = name.casefold()

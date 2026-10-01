@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.4
+
+- O HTML escapa o nome do arquivo e traz uma política de conteúdo restritiva. Nome com `{` ou `<script>` não quebra a página.
+- Vínculo e hiperlink mostram só o site. Texto entre aspas na fórmula vira um marcador. Senha mostra só o tamanho. O diff usa a mesma máscara de CPF e de segredo. Caminho absoluto vira o nome do arquivo.
+- `--show` é recusado quando `CI` ou `GITHUB_ACTIONS` está definido.
+- Código de saída 3, «não analisado», com a causa: ilegível, senha, corrompido, `.xls`/`.csv` passado no comando, ou arquivo acima do limite. Planilha grande deixa de ser chamada de hostil. `--max-mb` analisa um arquivo maior de propósito. Um arquivo quebrado no meio da pasta não interrompe o resto.
+- A saída do terminal fica em UTF-8. O relatório é gravado só para quem rodou, quando o sistema permite.
+- Aba com acento e sem aspas (`=Orçamento!B5`) é reconhecida. `Tabela1[Valor]` não é vínculo externo. `LOG10` deslocado continua `LOG10`.
+- Cabeçalho de CPF vale mesmo fora da primeira linha. Coluna Telefone, Código ou Quantidade não gera alerta de CPF. CPF numérico de 10 dígitos (sem o zero à esquerda) entra quando a coluna é de CPF.
+- Formato `;;;`, coluna ou linha quase sem largura, e conteúdo fora da área de impressão entram no relatório. E-mail de quem comentou e o cache do vínculo externo também.
+- O diff compara pelo endereço da célula: inserir linhas gera várias mudanças. Aba nova que já vem oculta informa isso. Valor mascarado que mudou diz «valor alterado».
+- Sem caminho, o programa mostra a ajuda e não varre a pasta atual. No Windows, a instalação recomendada é um ambiente virtual.
+
 ## 0.1.3
 
 - Subcomando `oculto-scan diff ORIGINAL.xlsx RECEBIDO.xlsx`: células, abas, ocultação, comentários, nomes, vínculos e quem salvou.

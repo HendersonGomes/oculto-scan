@@ -17,12 +17,19 @@ from pathlib import Path
 
 from oculto_scan import __version__
 from oculto_scan.analyze import _author_label, _drop_legacy_thread_placeholders
-from oculto_scan.masking import mask_formula, mask_path, mask_text
+from oculto_scan.masking import mask_formula, mask_link, mask_sensitive, mask_text
 from oculto_scan.models import Cell, Comment, DefinedName, Sheet, Workbook
 from oculto_scan.refs import contiguous_groups, format_group, index_to_col
-from oculto_scan.report import _REVEALED_BANNER, DISCLAIMER, _format_stamp, stdout_wants_color
+from oculto_scan.report import (
+    _REVEALED_BANNER,
+    DISCLAIMER,
+    _format_stamp,
+    fill_template,
+    stdout_wants_color,
+    write_private_text,
+)
 from oculto_scan.workbook import WorkbookParseError, load_workbook, read_document_properties
-from oculto_scan.zipsafe import ZipSafetyError
+from oculto_scan.zipsafe import FileTooLargeError, ZipSafetyError
 
 LIMITS = (
     "O arquivo não guarda IP nem o histórico de quem editou cada célula. "
@@ -94,13 +101,39 @@ def _blank(value: str | None) -> str:
     return value if value else "—"
 
 
+def _is_number(value: str) -> bool:
+    return value.replace(".", "", 1).replace(",", "", 1).replace("-", "", 1).isdigit()
+
+
 def _mask_scalar(value: str | None) -> str:
     if value is None or value == "":
         return "—"
     stripped = value.strip()
-    if stripped.replace(".", "", 1).replace(",", "", 1).replace("-", "", 1).isdigit():
+    sensitive = mask_sensitive(stripped)
+    if sensitive != stripped:
+        return sensitive
+    if _is_number(stripped):
         return "[n]"
     return mask_text(stripped)
+
+
+def _describe_masked(value: str) -> str:
+    stripped = value.strip()
+    kind = "número" if _is_number(stripped) else "texto"
+    return f"valor alterado ({kind}, {len(stripped)} caracteres)"
+
+
+def _useful_pair(before_raw: str, after_raw: str, before_masked: str, after_masked: str) -> tuple[str, str]:
+    """Replace ``[n] → [n]`` with the kind and the size, or with ``valor alterado``."""
+    if before_raw == after_raw or before_masked != after_masked:
+        return before_masked, after_masked
+    if before_masked not in {"[n]", "—"} and not before_masked.startswith("("):
+        return before_masked, after_masked
+    left = _describe_masked(before_raw)
+    right = _describe_masked(after_raw)
+    if left == right:
+        return "valor alterado", "valor alterado"
+    return left, right
 
 
 def _mask_formula_or_blank(value: str | None) -> str:
@@ -189,6 +222,9 @@ def _add(
     before_masked: str | None = None,
     after_masked: str | None = None,
 ) -> None:
+    left_masked = before_masked if before_masked is not None else _mask_scalar(before_raw)
+    right_masked = after_masked if after_masked is not None else _mask_scalar(after_raw)
+    left_masked, right_masked = _useful_pair(before_raw, after_raw, left_masked, right_masked)
     changes.append(
         DiffChange(
             sheet=sheet,
@@ -196,8 +232,8 @@ def _add(
             type_label=type_label,
             category=category,
             message=message,
-            before_masked=_blank(before_masked if before_masked is not None else _mask_scalar(before_raw)),
-            after_masked=_blank(after_masked if after_masked is not None else _mask_scalar(after_raw)),
+            before_masked=_blank(left_masked),
+            after_masked=_blank(right_masked),
             before_raw=_blank(before_raw),
             after_raw=_blank(after_raw),
         )
@@ -414,7 +450,7 @@ def _compare_names(original: Workbook, received: Workbook, changes: list[DiffCha
                 category="estrutura",
                 message="Nome definido presente só na planilha recebida.",
                 after_raw=right.formula,
-                after_masked=mask_path(mask_formula(right.formula)),
+                after_masked=mask_link(mask_formula(right.formula)),
             )
         elif right is None and left is not None:
             _add(
@@ -425,7 +461,7 @@ def _compare_names(original: Workbook, received: Workbook, changes: list[DiffCha
                 category="estrutura",
                 message="Nome definido presente só na planilha original.",
                 before_raw=left.formula,
-                before_masked=mask_path(mask_formula(left.formula)),
+                before_masked=mask_link(mask_formula(left.formula)),
             )
         elif left is not None and right is not None and (
             left.formula != right.formula or left.hidden != right.hidden
@@ -439,8 +475,8 @@ def _compare_names(original: Workbook, received: Workbook, changes: list[DiffCha
                 message="Nome definido alterado (fórmula ou visibilidade).",
                 before_raw=left.formula,
                 after_raw=right.formula,
-                before_masked=mask_path(mask_formula(left.formula)),
-                after_masked=mask_path(mask_formula(right.formula)),
+                before_masked=mask_link(mask_formula(left.formula)),
+                after_masked=mask_link(mask_formula(right.formula)),
             )
 
 
@@ -459,8 +495,8 @@ def _compare_links(original: Workbook, received: Workbook, changes: list[DiffCha
             message="Vínculo externo alterado.",
             before_raw=removed[0],
             after_raw=added[0],
-            before_masked=mask_path(removed[0]),
-            after_masked=mask_path(added[0]),
+            before_masked=mask_link(removed[0]),
+            after_masked=mask_link(added[0]),
         )
         return
     for link in removed:
@@ -472,7 +508,7 @@ def _compare_links(original: Workbook, received: Workbook, changes: list[DiffCha
             category="estrutura",
             message="Vínculo externo presente só na planilha original.",
             before_raw=link,
-            before_masked=mask_path(link),
+            before_masked=mask_link(link),
         )
     for link in added:
         _add(
@@ -483,7 +519,7 @@ def _compare_links(original: Workbook, received: Workbook, changes: list[DiffCha
             category="estrutura",
             message="Vínculo externo presente só na planilha recebida.",
             after_raw=link,
-            after_masked=mask_path(link),
+            after_masked=mask_link(link),
         )
 
 
@@ -572,6 +608,17 @@ def compare_workbooks(
             after_raw=sheet.name,
             after_masked=sheet.name,
         )
+        if sheet.state != "visible":
+            _add(
+                changes,
+                sheet=sheet.name,
+                cell="",
+                type_label="visibilidade da aba",
+                category="estrutura",
+                message="A aba nova já veio oculta.",
+                after_raw=_STATE.get(sheet.state, sheet.state),
+                after_masked=_STATE.get(sheet.state, sheet.state),
+            )
     _compare_names(original, received, changes)
     _compare_links(original, received, changes)
     metadata, meta_changes = _compare_metadata(original_props, received_props)
@@ -699,18 +746,14 @@ def render_diff_html(report: DiffReport, *, show: bool, generated_at: datetime |
     rows: list[str] = []
     for change in report.changes:
         rows.append(
-            "<tr class=\"cat-{category}\">"
-            "<td>{sheet}</td><td>{cell}</td><td>{kind}</td>"
-            "<td class=\"value\">{before}</td><td class=\"value\">{after}</td><td>{message}</td>"
-            "</tr>".format(
-                category=_esc(change.category),
-                sheet=_esc(change.sheet or "—"),
-                cell=_esc(change.cell or "—"),
-                kind=_esc(change.type_label),
-                before=_esc(_side(change, show=show, before=True)),
-                after=_esc(_side(change, show=show, before=False)),
-                message=_esc(change.message),
-            )
+            f'<tr class="cat-{_esc(change.category)}">'
+            f"<td>{_esc(change.sheet or '—')}</td>"
+            f"<td>{_esc(change.cell or '—')}</td>"
+            f"<td>{_esc(change.type_label)}</td>"
+            f'<td class="value">{_esc(_side(change, show=show, before=True))}</td>'
+            f'<td class="value">{_esc(_side(change, show=show, before=False))}</td>'
+            f"<td>{_esc(change.message)}</td>"
+            "</tr>"
         )
     meta_rows: list[str] = []
     for row in report.metadata:
@@ -731,7 +774,8 @@ def render_diff_html(report: DiffReport, *, show: bool, generated_at: datetime |
         if rows
         else "<p class=\"empty\">Nenhuma diferença de célula, aba, comentário ou vínculo.</p>"
     )
-    return _HTML.format(
+    return fill_template(
+        _HTML,
         banner=banner,
         stamp=_esc(_format_stamp(when)),
         version=_esc(__version__),
@@ -749,7 +793,7 @@ def render_diff_html(report: DiffReport, *, show: bool, generated_at: datetime |
     )
 
 
-def load_diff(original: Path, received: Path) -> DiffReport:
+def load_diff(original: Path, received: Path, *, max_mb: int | None = None) -> DiffReport:
     identical = original.resolve() != received.resolve() and original.read_bytes() == received.read_bytes()
     if original.resolve() == received.resolve():
         identical = True
@@ -763,15 +807,15 @@ def load_diff(original: Path, received: Path) -> DiffReport:
             headline=IDENTICAL,
             exit_code=0,
         )
-    left = load_workbook(original)
-    right = load_workbook(received)
+    left = load_workbook(original, max_mb=max_mb)
+    right = load_workbook(received, max_mb=max_mb)
     return compare_workbooks(
         left,
         right,
         original_label=str(original),
         received_label=str(received),
-        original_props=read_document_properties(original),
-        received_props=read_document_properties(received),
+        original_props=read_document_properties(original, max_mb=max_mb),
+        received_props=read_document_properties(received, max_mb=max_mb),
         identical=False,
     )
 
@@ -798,7 +842,21 @@ def run_diff(argv: list[str]) -> int:
         help="mostra os valores no terminal e no HTML; o JSON continua mascarado",
     )
     parser.add_argument("--no-color", action="store_true", help="desliga cores ANSI no texto")
+    parser.add_argument(
+        "--max-mb",
+        type=int,
+        default=None,
+        metavar="N",
+        help="compara de propósito um arquivo maior que o limite padrão",
+    )
     args = parser.parse_args(argv)
+    if args.show:
+        from oculto_scan.cli import show_is_blocked
+
+        blocked = show_is_blocked()
+        if blocked:
+            print(blocked, file=sys.stderr)
+            return 2
     if args.output is not None and args.formato != "html":
         print("--output é o caminho do relatório HTML; use junto com --format html.", file=sys.stderr)
         return 2
@@ -810,10 +868,22 @@ def run_diff(argv: list[str]) -> int:
             print(f"Informe um arquivo .xlsx ou .xlsm: {path}", file=sys.stderr)
             return 2
     try:
-        report = load_diff(args.original, args.recebido)
-    except (ZipSafetyError, WorkbookParseError, OSError) as exc:
-        print(f"Não foi possível comparar ({exc}).", file=sys.stderr)
-        return 2
+        report = load_diff(args.original, args.recebido, max_mb=args.max_mb)
+    except FileTooLargeError as exc:
+        print(f"Não analisado: {exc}", file=sys.stderr)
+        return 3
+    except ZipSafetyError as exc:
+        if "não é um pacote zip válido" in str(exc):
+            print(f"Não analisado: arquivo corrompido ({exc}).", file=sys.stderr)
+            return 3
+        print(f"Arquivo recusado por limite de segurança ({exc}).", file=sys.stderr)
+        return 1
+    except WorkbookParseError as exc:
+        print(f"Não analisado: planilha ilegível ({exc}).", file=sys.stderr)
+        return 3
+    except OSError as exc:
+        print(f"Não analisado: não foi possível ler ({exc}).", file=sys.stderr)
+        return 3
     if args.formato == "json":
         sys.stdout.write(render_diff_json(report))
     elif args.formato == "html":
@@ -823,8 +893,7 @@ def run_diff(argv: list[str]) -> int:
             target = Path("oculto-scan-diff-revelado.html")
         else:
             target = Path("oculto-scan-diff.html")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(render_diff_html(report, show=args.show), encoding="utf-8")
+        write_private_text(target, render_diff_html(report, show=args.show))
         print(f"Relatório salvo em {target}")
     else:
         sys.stdout.write(
@@ -838,6 +907,8 @@ _HTML = """\
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+ content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <title>oculto-scan — diferenças</title>
 <style>
   :root {{

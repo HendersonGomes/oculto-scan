@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from oculto_scan import __version__
 from oculto_scan.models import RISK_LABEL, RISK_RANK, Finding
@@ -190,6 +191,53 @@ def _esc(value: object) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
+def fill_template(template: str, **values: str) -> str:
+    """Fill ``{name}`` placeholders without calling ``str.format`` on user text.
+
+    CSS in the template keeps doubled braces. Values are inserted afterwards,
+    so a file name like ``a{x}.xlsx`` cannot break the page or run as a key.
+    """
+    text = template
+    tokens: dict[str, str] = {}
+    for index, key in enumerate(values):
+        token = f"@@PH{index}@@"
+        text = text.replace("{" + key + "}", token)
+        tokens[token] = values[key]
+    text = text.replace("{{", "\x00").replace("}}", "\x01").replace("\x00", "{").replace("\x01", "}")
+    for token, value in tokens.items():
+        text = text.replace(token, value)
+    return text
+
+
+def force_utf8_stdio() -> None:
+    """Keep ``→`` readable when Windows redirects stdout as cp1252."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            continue
+
+
+def write_private_text(path: Path, text: str) -> None:
+    """Write a report that other users on the machine cannot read, when the OS allows it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            fd = -1
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
 def _format_stamp(when: datetime) -> str:
     """Local wall time plus an explicit UTC offset, e.g. ``30/09/2026 21:55 (UTC-03:00)``."""
     if when.tzinfo is None:
@@ -240,29 +288,23 @@ def render_html(
                 value = finding.evidence_masked or "—"
             risk = RISK_LABEL.get(finding.risk, finding.risk)
             rows.append(
-                "<tr class=\"risk-{risk}\">"
-                "<td>{sheet}</td><td>{cell}</td><td>{kind}</td>"
-                "<td><span class=\"badge badge-{risk}\">{risk_label}</span></td>"
-                "<td>{message}</td><td class=\"value\">{value}</td>"
-                "</tr>".format(
-                    risk=_esc(finding.risk),
-                    sheet=_esc(finding.sheet or "—"),
-                    cell=_esc(finding.cell or "—"),
-                    kind=_esc(finding.type_label),
-                    risk_label=_esc(risk),
-                    message=_esc(finding.message),
-                    value=_esc(value),
-                )
+                f'<tr class="risk-{_esc(finding.risk)}">'
+                f"<td>{_esc(finding.sheet or '—')}</td>"
+                f"<td>{_esc(finding.cell or '—')}</td>"
+                f"<td>{_esc(finding.type_label)}</td>"
+                f'<td><span class="badge badge-{_esc(finding.risk)}">{_esc(risk)}</span></td>'
+                f"<td>{_esc(finding.message)}</td>"
+                f'<td class="value">{_esc(value)}</td>'
+                "</tr>"
             )
+        value_header = "Valor revelado" if show else "Valor mascarado"
         sections.append(
-            "<section class=\"file\">"
+            '<section class="file">'
             f"<h2>{_esc(name)}</h2>"
             "<table><thead><tr>"
             "<th>Aba</th><th>Célula</th><th>Tipo</th><th>Risco</th>"
-            "<th>Explicação</th><th>{value_header}</th>".format(
-                value_header="Valor revelado" if show else "Valor mascarado"
-            )
-            + "</tr></thead><tbody>"
+            f"<th>Explicação</th><th>{_esc(value_header)}</th>"
+            "</tr></thead><tbody>"
             + "".join(rows)
             + "</tbody></table></section>"
         )
@@ -273,7 +315,8 @@ def render_html(
         if show
         else "Relatório de vazamento em planilha de obra. Valores mascarados; nada aqui é o conteúdo original."
     )
-    return _HTML.format(
+    return fill_template(
+        _HTML,
         banner=banner,
         lead=_esc(lead),
         version=_esc(__version__),
@@ -295,6 +338,8 @@ _HTML = """\
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+ content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>oculto-scan — relatório</title>
 <style>

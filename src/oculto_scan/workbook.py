@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+import zipfile
 from pathlib import Path
 
 from defusedxml import ElementTree as DefusedET
@@ -16,10 +17,20 @@ from defusedxml.common import DefusedXmlException
 
 from oculto_scan.models import Cell, Comment, DefinedName, Sheet, Workbook
 from oculto_scan.refs import col_to_index, index_to_col, split_cell
-from oculto_scan.zipsafe import ZipSafetyError, open_office_package, read_member
+from oculto_scan.zipsafe import ZipSafetyError, open_office_bytes, open_office_package, read_member
 
-_CELL_TOKEN = re.compile(r"(\$?)([A-Z]{1,3})(\$?)(\d+)")
+# A cell token, not a function (``LOG10(``) and not glued to a name (``ATAN2``, ``Total10``).
+_CELL_TOKEN = re.compile(r"(?<![A-Za-z0-9_])(\$?)([A-Z]{1,3})(\$?)(\d+)(?![A-Za-z0-9_(])")
+_QUOTED = re.compile(r'"(?:[^"]|"")*"')
 _BUILTIN_NAME = re.compile(r"^_xlnm\.", re.IGNORECASE)
+_PRINT_AREA = re.compile(r"(?i)^_xlnm\.print_area$")
+_AREA_REF = re.compile(
+    r"(?:(?:'((?:[^']|'')*)'|([A-Za-z0-9_\-. \u00C0-\u024F]+))!)?"
+    r"(\$?[A-Z]{1,3}\$?\d+):(\$?[A-Z]{1,3}\$?\d+)"
+)
+_SPAN_LIMIT = 4096
+_NARROW_WIDTH = 0.5
+_SHORT_HEIGHT = 0.5
 
 _IDENTITY_META = {
     "creator",
@@ -103,10 +114,7 @@ def _parse_rels(payload: bytes) -> list[tuple[str, str, str, str]]:
     return rels
 
 
-def _shift_formula(formula: str, delta_row: int, delta_col: int) -> str:
-    if not delta_row and not delta_col:
-        return formula
-
+def _shift_outside(formula: str, delta_row: int, delta_col: int) -> str:
     def _repl(match: re.Match[str]) -> str:
         abs_col, letters, abs_row, row_text = match.groups()
         column = col_to_index(letters)
@@ -120,6 +128,29 @@ def _shift_formula(formula: str, delta_row: int, delta_col: int) -> str:
         return f"{abs_col}{index_to_col(column)}{abs_row}{row}"
 
     return _CELL_TOKEN.sub(_repl, formula)
+
+
+def _shift_formula(formula: str, delta_row: int, delta_col: int) -> str:
+    """Shift cell references. Quoted text and names like ``LOG10`` stay put."""
+    if not delta_row and not delta_col:
+        return formula
+    parts: list[str] = []
+    cursor = 0
+    for match in _QUOTED.finditer(formula):
+        parts.append(_shift_outside(formula[cursor : match.start()], delta_row, delta_col))
+        parts.append(match.group(0))
+        cursor = match.end()
+    parts.append(_shift_outside(formula[cursor:], delta_row, delta_col))
+    return "".join(parts)
+
+
+def _remember_span(target: set[int], spans: list[tuple[int, int]], start: int, end: int) -> None:
+    if end < start:
+        return
+    if end - start + 1 <= _SPAN_LIMIT:
+        target.update(range(start, end + 1))
+    else:
+        spans.append((start, end))
 
 
 def _truthy(value: str | None) -> bool:
@@ -161,13 +192,38 @@ def _load_shared_strings(parts: dict[str, bytes]) -> list[str]:
     return values
 
 
-def _sheet_cells(root: DefusedET.Element, shared: list[str]) -> tuple[list[Cell], set[int], set[int]]:  # type: ignore[name-defined]
+def _style_formats(parts: dict[str, bytes]) -> dict[int, str]:
+    payload = parts.get("xl/styles.xml")
+    if payload is None:
+        return {}
+    root = _parse_xml(payload)
+    formats: dict[str, str] = {}
+    cell_xfs: list[str] = []
+    for node in root.iter():
+        local = _local(node.tag)
+        if local == "numFmt":
+            formats[_attr(node, "numFmtId") or ""] = _attr(node, "formatCode") or ""
+        elif local == "cellXfs":
+            for child in list(node):
+                if _local(child.tag) != "xf":
+                    continue
+                cell_xfs.append(formats.get(_attr(child, "numFmtId") or "", ""))
+    return {index: code for index, code in enumerate(cell_xfs) if code}
+
+
+def _sheet_cells(  # type: ignore[name-defined]
+    root: DefusedET.Element,
+    shared: list[str],
+    xf_formats: dict[int, str],
+) -> tuple[list[Cell], set[int], set[int], list[tuple[int, int]], list[tuple[int, int]], set[int], set[int]]:
     hidden_rows: set[int] = set()
     hidden_cols: set[int] = set()
+    hidden_row_spans: list[tuple[int, int]] = []
+    hidden_col_spans: list[tuple[int, int]] = []
+    narrow_cols: set[int] = set()
+    short_rows: set[int] = set()
     for node in root.iter():
         if _local(node.tag) != "col":
-            continue
-        if not _truthy(_attr(node, "hidden")):
             continue
         try:
             start = int(_attr(node, "min") or "0")
@@ -176,9 +232,16 @@ def _sheet_cells(root: DefusedET.Element, shared: list[str]) -> tuple[list[Cell]
             continue
         if start < 1 or end < start:
             continue
-        # A single <col max="16384"> would mark every column. Cap the span.
-        end = min(end, start + 256)
-        hidden_cols.update(range(start, end + 1))
+        hidden = _truthy(_attr(node, "hidden"))
+        if hidden:
+            _remember_span(hidden_cols, hidden_col_spans, start, end)
+            continue
+        try:
+            width = float(_attr(node, "width") or "999")
+        except ValueError:
+            width = 999
+        if 0 <= width <= _NARROW_WIDTH:
+            _remember_span(narrow_cols, [], start, end)
 
     masters: dict[str, tuple[str, int, int]] = {}
     pending: list[tuple[Cell, str]] = []
@@ -193,6 +256,14 @@ def _sheet_cells(root: DefusedET.Element, shared: list[str]) -> tuple[list[Cell]
             row_index = 0
         if _truthy(_attr(row_el, "hidden")) and row_index:
             hidden_rows.add(row_index)
+        elif row_index:
+            height_text = _attr(row_el, "ht")
+            if height_text:
+                try:
+                    if float(height_text) <= _SHORT_HEIGHT:
+                        short_rows.add(row_index)
+                except ValueError:
+                    pass
         for cell_el in row_el:
             if _local(cell_el.tag) != "c":
                 continue
@@ -212,7 +283,18 @@ def _sheet_cells(root: DefusedET.Element, shared: list[str]) -> tuple[list[Cell]
                 if body:
                     formula = body
                 break
-            cell = Cell(ref=ref or f"R{row}", row=row, col=col, formula=formula, value=_cell_value(cell_el, shared))
+            style_index = _attr(cell_el, "s")
+            number_format = None
+            if style_index and style_index.isdigit():
+                number_format = xf_formats.get(int(style_index)) or None
+            cell = Cell(
+                ref=ref or f"R{row}",
+                row=row,
+                col=col,
+                formula=formula,
+                value=_cell_value(cell_el, shared),
+                number_format=number_format,
+            )
             if formula and shared_id:
                 masters[shared_id] = (formula, row, col)
                 cells.append(cell)
@@ -228,7 +310,7 @@ def _sheet_cells(root: DefusedET.Element, shared: list[str]) -> tuple[list[Cell]
             continue
         formula, master_row, master_col = master
         cell.formula = _shift_formula(formula, cell.row - master_row, cell.col - master_col)
-    return cells, hidden_rows, hidden_cols
+    return cells, hidden_rows, hidden_cols, hidden_row_spans, hidden_col_spans, narrow_cols, short_rows
 
 
 def _comments_from(payload: bytes, kind: str) -> list[Comment]:
@@ -300,20 +382,56 @@ def _metadata(parts: dict[str, bytes], keys: set[str] | None = None) -> dict[str
     return found
 
 
-def _defined_names(root: DefusedET.Element, sheets: list[Sheet]) -> list[DefinedName]:  # type: ignore[name-defined]
+def _local_sheet_name(sheets: list[Sheet], local: str | None) -> str | None:
+    if local and local.isdigit():
+        index = int(local)
+        if 0 <= index < len(sheets):
+            return sheets[index].name
+    return None
+
+
+def _print_rects(formula: str, fallback_sheet: str | None) -> list[tuple[str, tuple[int, int, int, int]]]:
+    found: list[tuple[str, tuple[int, int, int, int]]] = []
+    for match in _AREA_REF.finditer(formula or ""):
+        quoted, plain, left, right = match.groups()
+        sheet_name = _unescape_sheet(quoted) if quoted else (plain or fallback_sheet or "")
+        start = split_cell(left)
+        end = split_cell(right)
+        if not sheet_name or not start or not end:
+            continue
+        r1, c1 = start
+        r2, c2 = end
+        if r1 > r2:
+            r1, r2 = r2, r1
+        if c1 > c2:
+            c1, c2 = c2, c1
+        found.append((sheet_name, (r1, c1, r2, c2)))
+    return found
+
+
+def _unescape_sheet(token: str) -> str:
+    return token.replace("''", "'")
+
+
+def _defined_names(  # type: ignore[name-defined]
+    root: DefusedET.Element, sheets: list[Sheet]
+) -> tuple[list[DefinedName], dict[str, list[tuple[int, int, int, int]]]]:
     names: list[DefinedName] = []
+    areas: dict[str, list[tuple[int, int, int, int]]] = {}
     for node in root.iter():
         if _local(node.tag) != "definedName":
             continue
         name = _attr(node, "name") or ""
-        if not name or _BUILTIN_NAME.match(name):
+        if not name:
             continue
         formula = (node.text or "").strip()
-        local = _attr(node, "localSheetId")
-        local_sheet = None
-        if local and local.isdigit():
-            sheet = sheets[int(local)] if int(local) < len(sheets) else None
-            local_sheet = sheet.name if sheet else None
+        local_sheet = _local_sheet_name(sheets, _attr(node, "localSheetId"))
+        if _PRINT_AREA.match(name):
+            for sheet_name, rect in _print_rects(formula, local_sheet):
+                areas.setdefault(sheet_name, []).append(rect)
+            continue
+        if _BUILTIN_NAME.match(name):
+            continue
         names.append(
             DefinedName(
                 name=name,
@@ -322,12 +440,70 @@ def _defined_names(root: DefusedET.Element, sheets: list[Sheet]) -> list[Defined
                 local_sheet=local_sheet,
             )
         )
-    return names
+    return names, areas
 
 
-def read_document_properties(path: Path) -> dict[str, str]:
+def _person_emails(parts: dict[str, bytes]) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for part_name, payload in parts.items():
+        folded = part_name.casefold()
+        if not folded.endswith(".xml") or "person" not in folded:
+            continue
+        try:
+            root = _parse_xml(payload)
+        except (ZipSafetyError, WorkbookParseError):
+            continue
+        for node in root.iter():
+            if _local(node.tag) != "person":
+                continue
+            email = (_attr(node, "userId") or "").strip()
+            if "@" not in email:
+                continue
+            found[f"email-{len(found) + 1}"] = email
+    return found
+
+
+def _external_cache(parts: dict[str, bytes]) -> list[tuple[str, Cell]]:
+    cached: list[tuple[str, Cell]] = []
+    for part_name, payload in parts.items():
+        folded = part_name.casefold()
+        if "externallink" not in folded or not folded.endswith(".xml") or folded.endswith(".rels"):
+            continue
+        try:
+            root = _parse_xml(payload)
+        except (ZipSafetyError, WorkbookParseError):
+            continue
+        for node in root.iter():
+            if _local(node.tag) != "cell":
+                continue
+            ref = _attr(node, "r") or ""
+            value = None
+            for child in node:
+                if _local(child.tag) == "v" and child.text:
+                    value = child.text
+                    break
+            if not value:
+                continue
+            parsed = split_cell(ref) if ref else None
+            row, col = parsed if parsed else (0, 0)
+            cached.append(("vínculo externo", Cell(ref=ref, row=row, col=col, value=value)))
+    return cached
+
+
+def _read_parts(archive: zipfile.ZipFile, *, max_mb: int | None) -> dict[str, bytes]:
+    parts: dict[str, bytes] = {}
+    for info in archive.infolist():
+        if info.is_dir():
+            continue
+        name = info.filename.replace("\\", "/").lstrip("/")
+        parts[name] = read_member(archive, info, max_mb=max_mb)
+        parts[name.casefold()] = parts[name]
+    return parts
+
+
+def read_document_properties(path: Path, *, max_mb: int | None = None) -> dict[str, str]:
     """Core and app properties for ``diff``. Scan findings stay on the smaller set."""
-    archive = open_office_package(path)
+    archive = open_office_package(path, max_mb=max_mb)
     try:
         parts: dict[str, bytes] = {}
         for info in archive.infolist():
@@ -335,25 +511,48 @@ def read_document_properties(path: Path) -> dict[str, str]:
                 continue
             name = info.filename.replace("\\", "/").lstrip("/").casefold()
             if name in {"docprops/core.xml", "docprops/app.xml"}:
-                parts[name] = read_member(archive, info)
+                parts[name] = read_member(archive, info, max_mb=max_mb)
     finally:
         archive.close()
     return _metadata(parts, _DIFF_META_KEYS)
 
 
-def load_workbook(path: Path) -> Workbook:
-    """Load workbook structure. Raises ZipSafetyError or WorkbookParseError."""
-    archive = open_office_package(path)
+def read_document_properties_bytes(data: bytes, *, max_mb: int | None = None) -> dict[str, str]:
+    archive = open_office_bytes(data, max_mb=max_mb)
     try:
         parts: dict[str, bytes] = {}
         for info in archive.infolist():
             if info.is_dir():
                 continue
-            name = info.filename.replace("\\", "/").lstrip("/")
-            parts[name] = read_member(archive, info)
-            parts[name.casefold()] = parts[name]
+            name = info.filename.replace("\\", "/").lstrip("/").casefold()
+            if name in {"docprops/core.xml", "docprops/app.xml"}:
+                parts[name] = read_member(archive, info, max_mb=max_mb)
     finally:
         archive.close()
+    return _metadata(parts, _DIFF_META_KEYS)
+
+
+def load_workbook(path: Path, *, max_mb: int | None = None) -> Workbook:
+    """Load workbook structure. Raises ZipSafetyError, FileTooLargeError or WorkbookParseError."""
+    archive = open_office_package(path, max_mb=max_mb)
+    try:
+        parts = _read_parts(archive, max_mb=max_mb)
+    finally:
+        archive.close()
+    return _workbook_from_parts(parts, label=str(path))
+
+
+def load_workbook_bytes(data: bytes, nome: str, *, max_mb: int | None = None) -> Workbook:
+    """Same as :func:`load_workbook` for an in-memory package. Does not touch the disk."""
+    archive = open_office_bytes(data, max_mb=max_mb)
+    try:
+        parts = _read_parts(archive, max_mb=max_mb)
+    finally:
+        archive.close()
+    return _workbook_from_parts(parts, label=nome)
+
+
+def _workbook_from_parts(parts: dict[str, bytes], *, label: str) -> Workbook:
 
     has_vba = any(name.casefold() == "xl/vbaproject.bin" for name in parts)
     workbook_xml = parts.get("xl/workbook.xml")
@@ -366,6 +565,7 @@ def load_workbook(path: Path) -> Workbook:
     rel_by_id = {rel_id: (rel_type, target, mode) for rel_id, rel_type, target, mode in rels}
 
     shared = _load_shared_strings(parts)
+    xf_formats = _style_formats(parts)
     sheets: list[Sheet] = []
     external: list[str] = []
 
@@ -391,10 +591,22 @@ def load_workbook(path: Path) -> Workbook:
         cells: list[Cell] = []
         hidden_rows: set[int] = set()
         hidden_cols: set[int] = set()
+        hidden_row_spans: list[tuple[int, int]] = []
+        hidden_col_spans: list[tuple[int, int]] = []
+        narrow_cols: set[int] = set()
+        short_rows: set[int] = set()
         comments: list[Comment] = []
         if sheet_xml:
             sheet_root = _parse_xml(sheet_xml)
-            cells, hidden_rows, hidden_cols = _sheet_cells(sheet_root, shared)
+            (
+                cells,
+                hidden_rows,
+                hidden_cols,
+                hidden_row_spans,
+                hidden_col_spans,
+                narrow_cols,
+                short_rows,
+            ) = _sheet_cells(sheet_root, shared, xf_formats)
             rels_name = posixpath.join(posixpath.dirname(target), "_rels", posixpath.basename(target) + ".rels")
             sheet_rels = parts.get(rels_name) or parts.get(rels_name.casefold())
             if sheet_rels:
@@ -420,6 +632,10 @@ def load_workbook(path: Path) -> Workbook:
                 hidden_rows=hidden_rows,
                 hidden_cols=hidden_cols,
                 comments=comments,
+                hidden_row_spans=hidden_row_spans,
+                hidden_col_spans=hidden_col_spans,
+                narrow_cols=narrow_cols,
+                short_rows=short_rows,
             )
         )
 
@@ -456,12 +672,19 @@ def load_workbook(path: Path) -> Workbook:
             seen.add(item)
             deduped.append(item)
 
+    defined_names, print_areas = _defined_names(root, sheets)
+    for sheet in sheets:
+        if sheet.name in print_areas:
+            sheet.print_areas = print_areas[sheet.name]
+    metadata = _metadata(parts)
+    metadata.update(_person_emails(parts))
     workbook = Workbook(
-        path=str(path),
+        path=label,
         sheets=sheets,
-        defined_names=_defined_names(root, sheets),
+        defined_names=defined_names,
         external_links=deduped,
         has_vba=has_vba,
-        metadata=_metadata(parts),
+        metadata=metadata,
+        external_cache=_external_cache(parts),
     )
     return workbook

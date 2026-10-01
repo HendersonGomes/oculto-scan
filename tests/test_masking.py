@@ -23,12 +23,12 @@ def test_mask_cnpj_numeric_and_alphanumeric():
 def test_mask_pis_secret_account_and_path():
     assert mask_pis("120.56437.87-4") == "***.56437.**-*"
     masked = mask_secret("AKIAIOSFODNN7EXAMPLE")
-    assert masked.startswith("AKIA")
+    assert "AKIA" not in masked
     assert "AKIAIOSFODNN7EXAMPLE" not in masked
-    assert "20 caracteres" in masked
+    assert masked == "(20 caracteres)"
     assert "567890" not in mask_account("567890-1")
     assert mask_account("567890-1").endswith("dígitos)")
+    assert mask_path(r"C:\Users\ana.sintetica\custos.xlsx") == "custos.xlsx"
     assert "ana.sintetica" not in mask_path(r"C:\Users\ana.sintetica\custos.xlsx")
-    assert "a***" in mask_path(r"C:\Users\ana.sintetica\custos.xlsx")
     assert mask_text("Autora Sintetica") == "Au**** Si*******"
     assert mask_formula("Custos!B2*1.35") == "Custos!B2*[n]"

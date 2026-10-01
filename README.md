@@ -51,13 +51,23 @@ Se o `cd $HOME\Documents` disser que a pasta não existe, use `cd $HOME\Document
 
 ### 4. Instalar
 
+Use um ambiente virtual, para a ferramenta não se misturar com outros programas Python. `py` é o lançador do Python no Windows. Se `py` não for reconhecido, troque por `python`.
+
 ```powershell
-python -m pip install -e .
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e .
 ```
 
 O ponto no final é a pasta em que você está. A instalação usa a internet esta única vez, para buscar duas bibliotecas pequenas. A leitura da planilha, depois, é offline: nada é enviado para fora.
 
+Quem prefere um comando só, sem pasta de projeto aberta no dia a dia, pode usar o [pipx](https://pipx.pypa.io/): `pipx install -e .` dentro da pasta do projeto.
+
 Se aparecer erro de arquivo não encontrado, o terminal não está dentro de `oculto-scan`. Rode `cd oculto-scan` de novo.
+
+Se o PowerShell recusar o `Activate.ps1`, rode uma vez `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` e tente de novo.
+
+**Não apague a pasta `oculto-scan`.** A instalação aponta para ela. Se a pasta sumir, o comando quebra. Para atualizar, use o passo 8. Para desinstalar, rode `pip uninstall oculto-scan` com o ambiente ativado e só então apague a pasta.
 
 ### 5. Se `oculto-scan` não for reconhecido
 
@@ -90,6 +100,8 @@ As aspas importam quando o caminho tem espaço.
 A pasta Documentos muitas vezes está no OneDrive. Nesse caso o caminho copiado é `C:\Users\<voce>\OneDrive\Documentos\proposta.xlsx`. Use o caminho que o Explorer copiou.
 
 Erro comum: colar só o caminho, sem `oculto-scan` ou `python -m oculto_scan` na frente. O PowerShell tenta abrir a planilha como se fosse um comando e responde que não reconhece o arquivo.
+
+Rodar o programa sem nenhum arquivo também não varre a pasta em que você está. Ele mostra a ajuda e pede um caminho. Para varrer uma pasta, informe essa pasta no comando.
 
 ### 7. Como ler o resultado
 
@@ -133,11 +145,12 @@ Se `oculto-scan` não for reconhecido, troque por `python -m oculto_scan diff`. 
 
 ```powershell
 cd $HOME\Documents\oculto-scan
+.\.venv\Scripts\Activate.ps1
 git pull
-python -m pip install -e .
+pip install -e .
 ```
 
-Se a pasta do projeto estiver em outro lugar, o `cd` é o caminho dessa pasta.
+Se a pasta do projeto estiver em outro lugar, o `cd` é o caminho dessa pasta. Apagar essa pasta quebra a instalação: o comando deixa de achar o programa.
 
 ### Monte uma planilha de demonstração
 
@@ -243,6 +256,8 @@ As versões de `defusedxml` e `tarja` estão fixadas no `pyproject.toml`.
 
 ### Windows
 
+O caminho recomendado é um ambiente virtual, como no passo a passo do início (`py -m venv .venv`, ativar, `pip install -e .`). Apagar a pasta do projeto quebra essa instalação.
+
 No PowerShell, se `oculto-scan` não for reconhecido porque a pasta Scripts do Python está fora do PATH, use:
 
 ```powershell
@@ -270,7 +285,7 @@ oculto-scan diff enviada.xlsx recebida.xlsx
 oculto-scan diff enviada.xlsx recebida.xlsx --format html
 ```
 
-A pasta é varrida de forma recursiva. Arquivos `~$...` (trava do Excel) e extensões que não sejam `.xlsx`/`.xlsm` são ignorados.
+Sem caminho, o programa mostra a ajuda e sai com código 2. A pasta atual não é varrida. Uma pasta informada no comando é varrida de forma recursiva, incluindo subpastas. Arquivos `~$...` (trava do Excel) e extensões que não sejam `.xlsx`/`.xlsm` são ignorados nessa varredura. Um `.xls` ou `.csv` passado direto no comando não é lido: a saída diz isso e o código é 3.
 
 No terminal, o arquivo aparece uma vez como cabeçalho. Abaixo, cada achado é `aba › célula › tipo › risco`, com a explicação na linha seguinte. Alto sai em vermelho, médio em amarelo e info em ciano, quando a saída é um terminal. A cor desliga sozinha se a saída não for um TTY, se a variável `NO_COLOR` estiver definida, ou com `--no-color`. O JSON não muda e continua sempre mascarado.
 
@@ -280,11 +295,16 @@ No terminal, o arquivo aparece uma vez como cabeçalho. Abaixo, cada achado é `
 | --- | --- |
 | 0 | Nada no nível de `--fail-on` ou acima |
 | 1 | Há achado nesse nível ou acima |
-| 2 | Caminho ausente, ignore ou linha de base inválidos |
+| 2 | Caminho ausente, ignore ou linha de base inválidos, ou `--show` recusado no CI |
+| 3 | Não analisado: ilegível, protegido por senha, corrompido, `.xls`/`.csv` passado no comando, ou acima do limite de tamanho |
+
+Se algum arquivo da leva não pôde ser lido, o código é 3, mesmo que outro arquivo tenha achado. Arquivo hostil (zip bomb, partes demais) continua no código 1.
 
 `--fail-on` aceita `alto` (padrão), `medio`, `info` e `nenhum`. `medio` reprova médio e alto. Serve para pre-commit ou CI: o processo sai com erro quando o relatório tem achado grave.
 
-`--show` revela o valor no terminal e no HTML. O JSON continua mascarado. Sem `--show`, CPF sai como `***.982.247-**`, segredo como prefixo e tamanho (`AKIA… (20 caracteres)`), caminho com o usuário trocado (`C:\Users\a***\...`).
+`--show` revela o valor no terminal e no HTML. O JSON continua mascarado. Sem `--show`, CPF sai como `***.982.247-**`, senha só como tamanho (`(20 caracteres)`), vínculo e hiperlink só como site (`https://sharepoint.example`), e caminho absoluto só como nome do arquivo. Se `CI` ou `GITHUB_ACTIONS` estiver definido, `--show` é recusado e o processo sai com código 2: o log do CI não fica com CPF nem senha.
+
+`--max-mb N` sobe o limite para analisar de propósito um arquivo maior. O padrão recusa acima de 64 MiB no total e 32 MiB por parte, com código 3 e o limite escrito na mensagem. Isso não é tratado como ataque. Razão de compressão alta e pacote com partes demais continuam como arquivo hostil.
 
 `--format html --show` grava os valores reais (comentário, fórmula com a constante, autor dos metadados). Sem `--output`, o arquivo é `oculto-scan-relatorio-revelado.html`. Uma faixa vermelha no topo avisa para não enviar esse arquivo a terceiros. No Windows, `start oculto-scan-relatorio-revelado.html` abre no navegador.
 
@@ -292,11 +312,13 @@ Quando o Excel grava um comentário em thread, ele também deixa uma nota antiga
 
 ## Comparar o que voltou (`diff`)
 
-`oculto-scan diff ORIGINAL.xlsx RECEBIDO.xlsx` compara a planilha que você enviou com a que o colega devolveu. A saída segue o mesmo estilo: `aba › célula › tipo de mudança`, com antes e depois. `--format json` continua mascarado. `--format html` gera uma página com colunas Antes/Depois e um quadro **Quem salvou**. Sem `--output`, o arquivo é `oculto-scan-diff.html` (ou `oculto-scan-diff-revelado.html` com `--show`).
+`oculto-scan diff ORIGINAL.xlsx RECEBIDO.xlsx` compara a planilha que você enviou com a que o colega devolveu. A comparação é pelo endereço da célula (`Proposta!C2` com `Proposta!C2`). Inserir ou apagar linhas no meio desloca o que está abaixo, e o relatório lista várias mudanças, uma por célula. A saída segue o mesmo estilo: `aba › célula › tipo de mudança`, com antes e depois. `--format json` continua mascarado. `--format html` gera uma página com colunas Antes/Depois e um quadro **Quem salvou**. Sem `--output`, o arquivo é `oculto-scan-diff.html` (ou `oculto-scan-diff-revelado.html` com `--show`).
 
-`--show` revela os valores no terminal e no HTML. No HTML, a faixa vermelha avisa para não enviar esse arquivo a terceiros. O JSON não revela.
+Quando os dois lados viram a mesma máscara (os dois `[n]`, por exemplo), a linha diz «valor alterado», com o tipo e o tamanho quando isso também mudou. Uma aba que só existe na planilha recebida e já veio oculta informa o estado de visibilidade.
 
-Códigos: `0` sem diferença, `1` com diferença, `2` erro de leitura.
+`--show` revela os valores no terminal e no HTML. No HTML, a faixa vermelha avisa para não enviar esse arquivo a terceiros. O JSON não revela. No CI, `--show` é recusado, como na varredura.
+
+Códigos: `0` sem diferença, `1` com diferença, `2` caminho ausente ou `--show` recusado, `3` arquivo ilegível, corrompido ou acima do limite.
 
 - Arquivos byte a byte iguais: «arquivo não foi salvo novamente».
 - Só autor, data ou outro metadado mudou: «salvo de novo sem alteração de conteúdo detectada».
@@ -362,16 +384,17 @@ O update inclui os achados daquela corrida e termina com código 0. Uma célula 
 - Sem rede. Não há cliente HTTP no código, e a tarja não tem dependência de execução.
 - Valor mascarado em toda saída, salvo `--show` no terminal e no HTML. O JSON continua mascarado.
 - XML com defusedxml (sem entidade externa, sem expansão de DTD).
-- Limite de zip bomb: tamanho do arquivo, tamanho descompactado, número de membros e razão de compressão. A leitura de cada membro também é limitada.
+- Zip bomb continua recusado: razão de compressão, número de partes e membro criptografado. Tamanho acima do limite (64 MiB no total, 32 MiB por parte) é «não analisado», código 3, com o limite na mensagem. `--max-mb` sobe esse limite de propósito. A leitura de cada parte também é limitada.
+- Relatório HTML e JSON no disco ficam com permissão restrita (só quem rodou) quando o sistema permite. A saída do terminal é UTF-8.
 - Macro não é executada nem descompilada. O binário `vbaProject.bin` não é vasculhado em busca de segredo — de propósito.
 - Vínculo externo não é resolvido, mesmo que o caminho exista na máquina.
 
 ## Limitações
 
-- Só OOXML (`.xlsx`/`.xlsm`). `.xls`, PDF, DOCX e imagem ficam para depois.
+- Só OOXML (`.xlsx`/`.xlsm`). Um `.xls` ou `.csv` passado no comando é «não analisado» (código 3). Dentro de uma pasta, essas extensões continuam de fora. PDF, DOCX e imagem ficam para depois.
 - Aba oculta é risco alto porque o destinatário a revela com um clique. Linha e coluna oculta ficam em médio: planilha de engenharia esconde faixa o tempo todo. O que sobe para alto é a célula visível que **depende** dessa faixa.
 - Fórmula compartilhada é deslocada pela referência relativa do mestre. `INDIRECT` não é avaliado. Validação de dados, cache de tabela dinâmica e objeto incorporado não são lidos.
-- Rótulo bancário é procurado nas três primeiras linhas da coluna, ou na própria frase da célula.
+- O cabeçalho de CPF e de dado bancário é a célula de texto mais próxima acima na coluna, mesmo que não seja a linha 1. Se a coluna não tem cabeçalho, vale o rótulo à esquerda. Cabeçalho Telefone, Código ou Quantidade não vira alerta de CPF.
 - Salário em si não vira achado: quase toda coluna de preço é um número. Ele só ajuda o contexto do CPF.
 - Entropia desligada por padrão.
 - Um relatório limpo não é arquivo limpo.
