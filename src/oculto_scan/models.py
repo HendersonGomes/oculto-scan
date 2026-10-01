@@ -13,7 +13,7 @@ class Finding:
     """One leak signal.
 
     ``message`` is always safe to print. ``evidence_raw`` may hold the
-    original snippet and is shown only with ``--show`` on the terminal.
+    original snippet and is shown only with ``--show`` (terminal and HTML).
     ``evidence_masked`` is what JSON and the default terminal report use.
     """
 

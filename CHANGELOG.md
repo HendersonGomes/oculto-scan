@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- `--format html --show` revela os valores, com faixa vermelha de aviso. Sem `--show`, o HTML continua mascarado. O nome padrão do arquivo revelado é `oculto-scan-relatorio-revelado.html`.
+- A nota legada do comentário em thread também é reconhecida no Excel em português (`[Comentário encadeado]`, `[Comentário em thread]`) e em espanhol, pelo autor `tc={GUID}` na mesma célula.
+- A data do relatório HTML usa o fuso da máquina, com o deslocamento visível (`30/09/2026 21:55 (UTC-03:00)`).
+
 ## 0.1.1
 
 - Relatório HTML (`--format html`, `--output`) em um arquivo só, com CSS embutido e estilo de impressão. O valor fica mascarado mesmo com `--show`.

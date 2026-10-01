@@ -19,10 +19,12 @@ from oculto_scan.secrets import find_high_entropy, find_secrets
 _GUID = re.compile(r"^\{?[0-9a-fA-F-]{32,}\}?$")
 # Excel stores the threaded-comment author as ``tc={GUID}`` on the legacy note.
 _TC_AUTHOR = re.compile(r"(?i)^tc\s*=")
-# Compatibility note Excel writes beside a threaded comment. The link id varies.
-_THREAD_PLACEHOLDER = re.compile(
-    r"\[Threaded comment\][\s\S]{0,80}?Your version of Excel allows you to read this threaded comment",
-    re.IGNORECASE,
+# Localized first line of that compatibility note. The rest of the wording varies.
+_PLACEHOLDER_PREFIXES = (
+    "[threaded comment]",
+    "[comentário encadeado]",
+    "[comentário em thread]",
+    "[comentario encadenado]",
 )
 
 _IDENTITY = {"creator", "lastmodifiedby", "company", "manager"}
@@ -43,7 +45,7 @@ def _author_label(author: str | None) -> str:
     if not author:
         return ""
     stripped = author.strip()
-    if _GUID.match(stripped) or _TC_AUTHOR.match(stripped):
+    if _GUID.match(stripped) or _is_tc_author(stripped):
         return ""
     return mask_text(stripped)
 
@@ -52,17 +54,24 @@ def _cell_key(ref: str) -> str:
     return ref.replace("$", "").casefold()
 
 
+def _is_tc_author(author: str | None) -> bool:
+    return bool(author and _TC_AUTHOR.match(author.strip()))
+
+
 def _is_thread_placeholder(text: str) -> bool:
-    return bool(_THREAD_PLACEHOLDER.search(text or ""))
+    folded = (text or "").lstrip().casefold()
+    return any(folded.startswith(prefix) for prefix in _PLACEHOLDER_PREFIXES)
 
 
 def _drop_legacy_thread_placeholders(workbook: Workbook) -> None:
     """Drop Excel's legacy compatibility note when a real thread exists.
 
-    A threaded comment is stored twice: the thread itself, and a legacy note
-    whose author is ``tc={GUID}`` and whose text is the English placeholder
-    beginning with ``[Threaded comment]``. That pair is one finding. A legacy
-    note with its own text stays.
+    A threaded comment is stored twice: the thread, and a legacy note whose
+    author is ``tc={GUID}``. The note text starts with ``[Threaded comment]``
+    in English, ``[Comentário encadeado]`` in pt-BR, ``[Comentário em thread]``
+    in pt-PT, or ``[Comentario encadenado]`` in Spanish. The author plus a
+    thread on the same cell is enough to treat it as that duplicate. A legacy
+    note with its own author and its own text stays.
     """
     for sheet in workbook.sheets:
         thread_cells = {_cell_key(item.ref) for item in sheet.comments if item.kind == "thread" and item.ref}
@@ -75,7 +84,7 @@ def _drop_legacy_thread_placeholders(workbook: Workbook) -> None:
                 item.kind == "nota"
                 and item.ref
                 and _cell_key(item.ref) in thread_cells
-                and _is_thread_placeholder(item.text)
+                and (_is_tc_author(item.author) or _is_thread_placeholder(item.text))
             )
         ]
 

@@ -62,7 +62,7 @@ def test_real_legacy_note_next_to_a_thread_stays(tmp_path):
                 "comments": [
                     {
                         "ref": "C2",
-                        "author": _TC_AUTHOR,
+                        "author": "Engenheira Sintetica",
                         "text": "nota independente, não é o aviso do Excel",
                     }
                 ],
@@ -73,9 +73,64 @@ def test_real_legacy_note_next_to_a_thread_stays(tmp_path):
     findings = analyze(load_workbook(path), "duas.xlsx")
     assert _rules_on(findings, "C2") == ["comentario", "comentario-thread"]
     note = next(item for item in findings if item.rule == "comentario")
-    assert "tc=" not in note.message
-    assert "tc***" not in note.message
-    assert "Autor:" not in note.message
+    assert "nota antiga" in note.message
+    assert "Engenheira Sintetica" not in note.message
+
+
+def test_portuguese_excel_placeholder_collapses_with_the_thread(tmp_path):
+    """pt-BR Excel writes ``[Comentário encadeado]`` and author ``tc={GUID}``."""
+    path = tmp_path / "encadeado.xlsx"
+    placeholder = (
+        "[Comentário encadeado]\n\n"
+        "Sua versão do Excel permite ler este comentário encadeado; porém, qualquer edição "
+        "será removida se o arquivo for aberto numa versão mais recente do Excel."
+    )
+    build_workbook(
+        path,
+        [
+            {
+                "name": "Proposta",
+                "cells": [{"ref": "C2", "value": "preço"}],
+                "comments": [{"ref": "C2", "author": _TC_AUTHOR, "text": placeholder}],
+                "threads": [{"ref": "C2", "text": "margem 35% não mostrar"}],
+            }
+        ],
+    )
+    findings = analyze(load_workbook(path), "encadeado.xlsx")
+    assert _rules_on(findings, "C2") == ["comentario-thread"]
+    thread = next(item for item in findings if item.rule == "comentario-thread")
+    assert thread.evidence_raw == "margem 35% não mostrar"
+    blob = "\n".join(item.message + (item.evidence_raw or "") for item in findings)
+    assert "tc=" not in blob
+    assert "tc***" not in blob
+    assert "Comentário encadeado" not in blob
+    assert "Autor:" not in thread.message
+
+
+def test_localized_prefixes_collapse_even_without_tc_author(tmp_path):
+    path = tmp_path / "prefixos.xlsx"
+    comments = []
+    threads = []
+    for index, prefix in enumerate(
+        ("[Comentário em thread]", "[Threaded comment]", "[Comentario encadenado]"),
+        start=2,
+    ):
+        ref = f"C{index}"
+        comments.append(
+            {
+                "ref": ref,
+                "author": "Revisor Sintetico",
+                "text": prefix + "\n\nTexto de compatibilidade do Excel.",
+            }
+        )
+        threads.append({"ref": ref, "text": f"nota {index}"})
+    build_workbook(
+        path,
+        [{"name": "Proposta", "cells": [{"ref": "A1", "value": "Item"}], "comments": comments, "threads": threads}],
+    )
+    findings = analyze(load_workbook(path), "prefixos.xlsx")
+    assert not any(item.rule == "comentario" for item in findings)
+    assert sum(item.rule == "comentario-thread" for item in findings) == 3
 
 
 def test_placeholder_without_a_thread_is_still_a_finding(tmp_path):
