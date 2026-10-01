@@ -22,6 +22,7 @@ class ScanResult:
     scanned: int = 0
     exit_code: int = 0
     messages: list[str] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)
 
 
 def display_path(path: Path) -> str:
@@ -89,6 +90,7 @@ def scan_files(
 
     workbooks = iter_workbooks(paths)
     result.scanned = len(workbooks)
+    result.files = [display_path(path) for path in workbooks]
     findings: list[Finding] = []
     for path in workbooks:
         label = display_path(path)

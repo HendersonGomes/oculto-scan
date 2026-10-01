@@ -7,14 +7,17 @@ import sys
 from pathlib import Path
 
 from oculto_scan import __version__
-from oculto_scan.report import render_json, render_text
+from oculto_scan.report import render_html, render_json, render_text, stdout_wants_color
 from oculto_scan.scanner import scan_files
 
 _EPILOG = """\
 exemplos:
   oculto-scan proposta.xlsx
   oculto-scan pasta-de-licitacao/ --format json
+  oculto-scan proposta.xlsx --format html
+  oculto-scan proposta.xlsx --format html --output relatorio.html
   oculto-scan medicao.xlsm --fail-on medio
+  oculto-scan proposta.xlsx --no-color
   oculto-scan orcamento.xlsx --ignore .oculto-ignore
   oculto-scan orcamento.xlsx --baseline .oculto-baseline.json
   oculto-scan orcamento.xlsx --update-baseline .oculto-baseline.json
@@ -42,14 +45,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--format",
         dest="formato",
-        choices=("texto", "json"),
+        choices=("texto", "json", "html"),
         default="texto",
-        help="saída no terminal (padrão: texto) ou JSON mascarado",
+        help="texto no terminal (padrão), JSON mascarado ou relatório HTML",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="arquivo do relatório HTML (padrão: oculto-scan-relatorio.html na pasta atual)",
+    )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="desliga cores ANSI no texto do terminal",
     )
     parser.add_argument(
         "--show",
         action="store_true",
-        help="mostra valores crus no texto do terminal; o JSON continua mascarado",
+        help="mostra valores crus no texto do terminal; JSON e HTML continuam mascarados",
     )
     parser.add_argument(
         "--fail-on",
@@ -87,6 +100,10 @@ def main(argv: list[str] | None = None) -> int:
         elif baseline is None:
             baseline = Path(".oculto-baseline.json")
 
+    if args.output is not None and args.formato != "html":
+        print("--output é o caminho do relatório HTML; use junto com --format html.", file=sys.stderr)
+        return 2
+
     result = scan_files(
         [Path(item) for item in args.caminhos],
         fail_on=args.fail_on,
@@ -103,6 +120,19 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(
             render_json(result.findings, ignored=result.ignored, scanned=result.scanned)
         )
+    elif args.formato == "html":
+        target = args.output if args.output is not None else Path("oculto-scan-relatorio.html")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            render_html(
+                result.findings,
+                ignored=result.ignored,
+                scanned=result.scanned,
+                files=result.files,
+            ),
+            encoding="utf-8",
+        )
+        print(f"Relatório salvo em {target}")
     else:
         sys.stdout.write(
             render_text(
@@ -110,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
                 show=args.show,
                 ignored=result.ignored,
                 scanned=result.scanned,
+                color=stdout_wants_color(no_color=args.no_color),
             )
         )
     return result.exit_code
