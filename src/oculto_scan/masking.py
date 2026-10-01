@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlparse
 
 _NON_ALNUM = re.compile(r"[^0-9A-Za-z]")
 _USER_DIR = re.compile(r"(?i)([\\/](?:Users|home|usuarios)[\\/])([^\\/]+)")
+_QUOTED = re.compile(r'"(?:[^"]|"")*"')
+_ABSOLUTE = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/]{2}|[\\/])")
 
 
 def mask_cpf(value: str) -> str:
@@ -31,12 +34,9 @@ def mask_pis(value: str) -> str:
 
 
 def mask_secret(value: str) -> str:
+    """Length only. The first characters of a token are still a secret."""
     stripped = value.strip()
-    if stripped.upper().startswith("-----BEGIN"):
-        prefix = "-----"
-    else:
-        prefix = stripped[:4]
-    return f"{prefix}… ({len(stripped)} caracteres)"
+    return f"({len(stripped)} caracteres)"
 
 
 def mask_account(value: str) -> str:
@@ -56,16 +56,48 @@ def mask_text(value: str) -> str:
     return " ".join(parts) if parts else "***"
 
 
+def _basename(value: str) -> str:
+    normalized = value.replace("\\", "/").rstrip("/")
+    name = normalized.split("/")[-1] if normalized else ""
+    return name or "***"
+
+
+def mask_url(value: str) -> str:
+    """Scheme and host only. A file URL keeps just the file name."""
+    parsed = urlparse(value.strip())
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    if parsed.scheme == "file":
+        return _basename(parsed.path)
+    return _basename(value)
+
+
 def mask_path(value: str) -> str:
+    """Absolute paths become the file name. Relative paths hide the user folder."""
+    text = value.strip()
+    if "://" in text or text.lower().startswith("file:"):
+        return mask_url(text)
+    normalized = text.replace("\\", "/")
+    if _ABSOLUTE.match(text) or normalized.startswith("//"):
+        return _basename(text)
+
     def _repl(match: re.Match[str]) -> str:
         name = match.group(2)
         masked = (name[:1] + "***") if name else "***"
         return match.group(1) + masked
 
-    return _USER_DIR.sub(_repl, value)
+    return _USER_DIR.sub(_repl, text)
 
 
-_CELL_REF = re.compile(r"(?<![A-Za-z])\$?[A-Z]{1,3}\$?\d+")
+def mask_link(value: str) -> str:
+    """External link or hyperlink: URL host, or the file name of a path."""
+    text = value.strip()
+    if "://" in text or text.lower().startswith("file:"):
+        return mask_url(text)
+    return mask_path(text)
+
+
+_CELL_REF = re.compile(r"(?<![A-Za-z0-9_])(\$?[A-Z]{1,3}\$?\d+)(?![A-Za-z0-9_(])")
 _BARE_NUMBER = re.compile(r"\d+(?:\.\d+)?%?")
 
 
@@ -79,16 +111,51 @@ def _ref_token(index: int) -> str:
     return "⟦" + "".join(reversed(chars)) + "⟧"
 
 
+def mask_sensitive(value: str) -> str:
+    """Apply the same CPF and secret masks the scan uses, then the generic mask."""
+    import tarja
+
+    from oculto_scan.secrets import find_secrets
+
+    text = value
+    for hit in find_secrets(text):
+        text = text.replace(hit.value, mask_secret(hit.value))
+    try:
+        matches = tarja.find(text[:100_000], entities=("BR_CPF", "BR_CNPJ", "BR_NIS"))
+    except Exception:
+        matches = []
+    for match in matches:
+        if not getattr(match, "valid_dv", False):
+            continue
+        if match.entity == "BR_CPF":
+            replacement = mask_cpf(match.value)
+        elif match.entity == "BR_CNPJ":
+            replacement = mask_cnpj(match.value)
+        elif match.entity == "BR_NIS":
+            replacement = mask_pis(match.value)
+        else:
+            continue
+        text = text.replace(match.value, replacement)
+    return text
+
+
 def mask_formula(formula: str) -> str:
-    """Hide bare numeric literals and keep cell references readable."""
+    """Hide numeric literals and quoted text. Cell references stay readable."""
     held: dict[str, str] = {}
 
-    def _hold(match: re.Match[str]) -> str:
+    def _hold(replacement: str) -> str:
         token = _ref_token(len(held))
-        held[token] = match.group(0)
+        held[token] = replacement
         return token
 
-    masked = _BARE_NUMBER.sub("[n]", _CELL_REF.sub(_hold, formula))
+    def _hold_string(match: re.Match[str]) -> str:
+        return _hold("«texto»")
+
+    def _hold_ref(match: re.Match[str]) -> str:
+        return _hold(match.group(0))
+
+    without_strings = _QUOTED.sub(_hold_string, formula)
+    masked = _BARE_NUMBER.sub("[n]", _CELL_REF.sub(_hold_ref, without_strings))
     for token, original in held.items():
         masked = masked.replace(token, original)
     return masked

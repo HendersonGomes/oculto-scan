@@ -21,8 +21,10 @@ def test_not_a_zip_and_malformed_xml(tmp_path, capsys):
     broken = tmp_path / "quebrado.xlsx"
     broken.write_bytes(b"isto nao e uma planilha")
     code = main([str(broken), "--format", "json"])
-    assert code == 1
-    assert "arquivo-hostil" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert code == 3
+    assert "nao-analisado" in captured.out
+    assert "corrompido" in captured.out + captured.err
 
     hostile_xml = tmp_path / "entidades.xlsx"
     write_zip(
@@ -43,6 +45,7 @@ def test_not_a_zip_and_malformed_xml(tmp_path, capsys):
     malformed = tmp_path / "xml-ruim.xlsx"
     write_zip(malformed, {"xl/workbook.xml": "<workbook><sheets></workbook>"})
     code = main([str(malformed), "--format", "json", "--fail-on", "medio"])
-    out = capsys.readouterr().out
-    assert code == 1
-    assert "arquivo-ilegivel" in out
+    captured = capsys.readouterr()
+    assert code == 3
+    assert "nao-analisado" in captured.out
+    assert "ilegível" in captured.out + captured.err

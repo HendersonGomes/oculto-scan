@@ -31,19 +31,21 @@ def split_cell(ref: str) -> tuple[int, int] | None:
     return int(match.group(4)), col_to_index(match.group(2))
 
 
-def rows_and_cols(ref: str) -> tuple[set[int] | None, set[int] | None]:
-    """Return row and column indexes touched by ``ref``.
+def reference_axes(ref: str) -> tuple[tuple[int, int] | None, tuple[int, int] | None] | None:
+    """Return ``(row_span, col_span)`` without listing every cell.
 
-    ``None`` means the axis is unbounded (a full column or full row range).
-    An empty set means the reference could not be parsed.
+    ``None`` on an axis means that axis is unbounded (a whole column or row).
+    ``None`` as the result means the reference could not be parsed.
     """
     clean = ref.replace("$", "")
+    if not clean:
+        return None
     if ":" not in clean:
         parsed = split_cell(clean)
         if not parsed:
-            return set(), set()
+            return None
         row, col = parsed
-        return {row}, {col}
+        return (row, row), (col, col)
 
     left, right = clean.split(":", 1)
     col_match = _COL_RANGE.match(clean)
@@ -52,31 +54,57 @@ def rows_and_cols(ref: str) -> tuple[set[int] | None, set[int] | None]:
         end = col_to_index(col_match.group(4))
         if start > end:
             start, end = end, start
-        return None, set(range(start, end + 1))
+        return None, (start, end)
     row_match = _ROW_RANGE.match(clean)
     if row_match:
         start = int(row_match.group(2))
         end = int(row_match.group(4))
         if start > end:
             start, end = end, start
-        return set(range(start, end + 1)), None
+        return (start, end), None
 
     left_cell = split_cell(left)
     right_cell = split_cell(right)
     if not left_cell or not right_cell:
-        return set(), set()
+        return None
     r1, c1 = left_cell
     r2, c2 = right_cell
     if r1 > r2:
         r1, r2 = r2, r1
     if c1 > c2:
         c1, c2 = c2, c1
-    # Cap expansion so a pathological A1:XFD1048576 cannot exhaust memory.
-    if (r2 - r1) > 2000 or (c2 - c1) > 256:
-        rows = set(range(r1, r1 + 2000))
-        cols = set(range(c1, min(c2, c1 + 256) + 1))
-        return rows, cols
-    return set(range(r1, r2 + 1)), set(range(c1, c2 + 1))
+    return (r1, r2), (c1, c2)
+
+
+def span_hits(span: tuple[int, int] | None, hidden: set[int], extra: list[tuple[int, int]]) -> bool:
+    """True when an axis meets a hidden index. ``span is None`` means unbounded."""
+    if span is None:
+        return bool(hidden or extra)
+    start, end = span
+    if start > end:
+        start, end = end, start
+    if any(start <= item <= end for item in hidden):
+        return True
+    return any(not (end < left or start > right) for left, right in extra)
+
+
+def rows_and_cols(ref: str) -> tuple[set[int] | None, set[int] | None]:
+    """Materialize a reference only when the caller really needs the indexes.
+
+    Prefer :func:`reference_axes` plus :func:`span_hits` for hidden-area checks.
+    """
+    axes = reference_axes(ref)
+    if axes is None:
+        return set(), set()
+    rows, cols = axes
+
+    def _set(span: tuple[int, int] | None) -> set[int] | None:
+        if span is None:
+            return None
+        start, end = span
+        return {start, end} if end != start else {start}
+
+    return _set(rows), _set(cols)
 
 
 def contiguous_groups(values: set[int]) -> list[tuple[int, int]]:

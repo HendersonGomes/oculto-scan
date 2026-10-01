@@ -41,9 +41,11 @@ _GITLEAKS_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
 # Original assignment rule. Inspired by the idea of gitleaks' generic-api-key,
 # rewritten for cell text and for the Portuguese word "senha". Entropy is not
 # required: that pass is off unless the operator asks for it.
+# ``aws_secret_access_key`` is matched as a whole token. ``Senha do portal: ...``
+# allows a few words between the label and the separator.
 _ASSIGNMENT = re.compile(
-    r"(?i)\b(?:password|passwd|senha|api[_-]?key|token|secret|client[_-]?secret)\b"
-    r"\s*[:=]\s*['\"]?([^\s'\"]{8,80})"
+    r"(?i)(?<![A-Za-z0-9])(?:aws_secret_access_key|password|passwd|senha|api[_-]?key|token|secret|client[_-]?secret)\b"
+    r"(?:\s+\w+){0,6}\s*[:=]\s*['\"]?([^\s'\"]{8,80})"
 )
 _PLACEHOLDERS = {
     "password",

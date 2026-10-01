@@ -11,19 +11,21 @@ import re
 from dataclasses import dataclass, field
 
 from oculto_scan.models import DefinedName, Sheet, Workbook
-from oculto_scan.refs import rows_and_cols
+from oculto_scan.refs import reference_axes, span_hits
 
 _STRING = re.compile(r'"(?:[^"]|"")*"')
 _QUOTED_SHEET = re.compile(r"'((?:[^']|'')*)'!")
-_UNQUOTED_SHEET = re.compile(r"(?<![A-Za-z0-9_.'])([A-Za-z_][A-Za-z0-9_.]*)!")
-_CELL_AT = re.compile(
-    r"^(\$?[A-Z]{1,3}:\$?[A-Z]{1,3}|\$?\d+:\$?\d+|\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)"
+# Letters include accents, so ``Orçamento!B5`` is a sheet reference.
+_UNQUOTED_SHEET = re.compile(r"(?<![\w.'])([^\W\d_][\w.]*)!", re.UNICODE)
+_CELL_BODY = (
+    r"(?:\$?[A-Z]{1,3}:\$?[A-Z]{1,3}|\$?\d+:\$?\d+|\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)"
 )
-_LOCAL_CELL = re.compile(
-    r"(?<![A-Za-z0-9_])(\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?|\$?[A-Z]{1,3}:\$?[A-Z]{1,3}|\$?\d+:\$?\d+)(?![A-Za-z0-9_])"
-)
+# A cell is not a function: ``LOG10(`` must not match. No identifier glued on either side.
+_CELL_AT = re.compile(rf"^({_CELL_BODY})(?![A-Za-z0-9_(])")
+_LOCAL_CELL = re.compile(rf"(?<![A-Za-z0-9_])({_CELL_BODY})(?![A-Za-z0-9_(])")
 _NUMBER = re.compile(r"(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?|\.\d+)(%)?(?![A-Za-z0-9_])")
 _EXTERNAL_BOOK = re.compile(r"\[[^\[\]\r\n]+\]")
+_WORKBOOK_IN_BRACKETS = re.compile(r"(?i)(?:\.xls|\.xlt|\\|/)|^\d+$")
 _WIN_PATH = re.compile(r"(?i)[A-Z]:\\[^\s\"']+")
 _UNC = re.compile(r"\\\\[^\s\"']+")
 _IDENT = re.compile(r"(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]*)(?![A-Za-z0-9_.])")
@@ -88,7 +90,10 @@ def parse_formula(formula: str, defined_names: set[str] | None = None) -> Formul
     stripped = _STRING.sub('""', text)
 
     for match in _EXTERNAL_BOOK.finditer(stripped):
-        info.external.append(match.group(0))
+        inner = match.group(0)[1:-1]
+        # ``Tabela1[Valor]`` is a structured reference, not another workbook.
+        if _WORKBOOK_IN_BRACKETS.search(inner):
+            info.external.append(match.group(0))
     for match in _WIN_PATH.finditer(stripped):
         info.external.append(match.group(0))
     for match in _UNC.finditer(stripped):
@@ -160,9 +165,12 @@ def reference_is_hidden(workbook: Workbook, sheet_name: str | None, ref: str) ->
         return True
     if not ref:
         return False
-    rows, cols = rows_and_cols(ref)
-    row_hit = bool(rows and rows & sheet.hidden_rows)
-    col_hit = bool(cols and cols & sheet.hidden_cols)
+    axes = reference_axes(ref)
+    if axes is None:
+        return False
+    rows, cols = axes
+    row_hit = span_hits(rows, sheet.hidden_rows, sheet.hidden_row_spans)
+    col_hit = span_hits(cols, sheet.hidden_cols, sheet.hidden_col_spans)
     return row_hit or col_hit
 
 
@@ -200,4 +208,4 @@ def name_points_hidden(workbook: Workbook, name: str, seen: set[str] | None = No
 
 
 def cell_is_visible(sheet: Sheet, row: int, col: int) -> bool:
-    return sheet.visible and row not in sheet.hidden_rows and col not in sheet.hidden_cols
+    return sheet.visible and not sheet.row_is_hidden(row) and not sheet.col_is_hidden(col)

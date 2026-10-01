@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -10,9 +11,12 @@ from oculto_scan.baseline import BaselineError, filter_findings, update_baseline
 from oculto_scan.ignore import IgnoreError, apply_ignore, load_ignore
 from oculto_scan.models import RISK_RANK, Finding
 from oculto_scan.workbook import WorkbookParseError, load_workbook
-from oculto_scan.zipsafe import ZipSafetyError
+from oculto_scan.zipsafe import FileTooLargeError, ZipSafetyError
 
 _SUFFIXES = {".xlsx", ".xlsm"}
+_EXPLICIT_OTHER = {".xls", ".csv"}
+_OLE = b"\xd0\xcf\x11\xe0"
+_UNANALYZED = "nao-analisado"
 
 
 @dataclass
@@ -26,19 +30,36 @@ class ScanResult:
 
 
 def display_path(path: Path) -> str:
+    """Relative path when the file sits under the current folder, otherwise the name."""
     resolved = path.resolve()
     try:
         return resolved.relative_to(Path.cwd().resolve()).as_posix()
     except ValueError:
-        return resolved.as_posix()
+        return path.name
 
 
 def iter_workbooks(paths: list[Path]) -> list[Path]:
+    found, _explicit = partition_inputs(paths)
+    return found
+
+
+def partition_inputs(paths: list[Path]) -> tuple[list[Path], list[Path]]:
+    """Workbooks to open, and .xls/.csv files the user named explicitly.
+
+    A directory walk still skips .xls and .csv. Naming one of them on the
+    command line is not silent: the caller reports it as not analyzed.
+    """
     found: list[Path] = []
+    explicit: list[Path] = []
     for path in paths:
         if path.is_file():
-            if path.suffix.lower() in _SUFFIXES and not path.name.startswith("~$"):
+            suffix = path.suffix.lower()
+            if path.name.startswith("~$"):
+                continue
+            if suffix in _SUFFIXES:
                 found.append(path)
+            elif suffix in _EXPLICIT_OTHER:
+                explicit.append(path)
         elif path.is_dir():
             for child in sorted(path.rglob("*")):
                 if not child.is_file():
@@ -48,7 +69,27 @@ def iter_workbooks(paths: list[Path]) -> list[Path]:
                 if child.name.startswith("~$"):
                     continue
                 found.append(child)
-    return found
+    return found, explicit
+
+
+def _unanalyzed(file_label: str, message: str) -> Finding:
+    return Finding(
+        file=file_label,
+        sheet="",
+        cell="",
+        rule=_UNANALYZED,
+        type_label="não analisado",
+        risk="info",
+        message=message,
+    )
+
+
+def _ole_encrypted(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            return handle.read(8).startswith(_OLE)
+    except OSError:
+        return False
 
 
 def _error_finding(file_label: str, rule: str, risk: str, message: str) -> Finding:
@@ -71,6 +112,7 @@ def scan_files(
     baseline_path: Path | None = None,
     update: bool = False,
     entropy: bool = False,
+    max_mb: int | None = None,
 ) -> ScanResult:
     result = ScanResult()
     missing = [path for path in paths if not path.exists()]
@@ -88,15 +130,41 @@ def scan_files(
             result.messages.append(str(exc))
             return result
 
-    workbooks = iter_workbooks(paths)
+    workbooks, explicit = partition_inputs(paths)
     result.scanned = len(workbooks)
     result.files = [display_path(path) for path in workbooks]
     findings: list[Finding] = []
+    for path in explicit:
+        label = display_path(path)
+        findings.append(
+            _unanalyzed(
+                label,
+                "Não analisado: .xls e .csv não são lidos. Salve como .xlsx e rode de novo.",
+            )
+        )
+        result.messages.append(f"Não analisado ({label}): formato .xls/.csv não é lido.")
     for path in workbooks:
         label = display_path(path)
         try:
-            workbook = load_workbook(path)
+            workbook = load_workbook(path, max_mb=max_mb)
+        except FileTooLargeError as exc:
+            findings.append(_unanalyzed(label, f"Não analisado: {exc}"))
+            result.messages.append(f"Não analisado ({label}): {exc}")
+            continue
         except ZipSafetyError as exc:
+            if "não é um pacote zip válido" in str(exc) and _ole_encrypted(path):
+                message = (
+                    "Não analisado: arquivo protegido por senha (assinatura OLE D0CF11E0). "
+                    "O oculto-scan não pede senha e não abre o conteúdo."
+                )
+                findings.append(_unanalyzed(label, message))
+                result.messages.append(f"Não analisado ({label}): protegido por senha.")
+                continue
+            if "não é um pacote zip válido" in str(exc):
+                message = "Não analisado: arquivo corrompido ou não é um pacote .xlsx/.xlsm válido."
+                findings.append(_unanalyzed(label, message))
+                result.messages.append(f"Não analisado ({label}): corrompido.")
+                continue
             findings.append(
                 _error_finding(
                     label,
@@ -106,20 +174,20 @@ def scan_files(
                 )
             )
             continue
+        except zipfile.BadZipFile:
+            message = "Não analisado: arquivo corrompido ou não é um pacote .xlsx/.xlsm válido."
+            findings.append(_unanalyzed(label, message))
+            result.messages.append(f"Não analisado ({label}): corrompido.")
+            continue
         except WorkbookParseError as exc:
-            findings.append(
-                _error_finding(
-                    label,
-                    "arquivo-ilegivel",
-                    "medio",
-                    f"Planilha ilegível ({exc}).",
-                )
-            )
+            message = f"Não analisado: planilha ilegível ({exc})."
+            findings.append(_unanalyzed(label, message))
+            result.messages.append(f"Não analisado ({label}): ilegível.")
             continue
         except OSError as exc:
-            findings.append(
-                _error_finding(label, "arquivo-ilegivel", "medio", f"Não foi possível ler o arquivo ({exc}).")
-            )
+            message = f"Não analisado: não foi possível ler o arquivo ({exc})."
+            findings.append(_unanalyzed(label, message))
+            result.messages.append(f"Não analisado ({label}): ilegível.")
             continue
         findings.extend(analyze(workbook, label, entropy=entropy))
 
@@ -162,9 +230,12 @@ def scan_files(
 
 
 def _exit_code(findings: list[Finding], fail_on: str) -> int:
+    if any(finding.rule == _UNANALYZED for finding in findings):
+        return 3
+    analyzed = findings
     if fail_on == "nenhum":
         return 0
     threshold = RISK_RANK[fail_on]
-    if any(RISK_RANK.get(finding.risk, 0) >= threshold for finding in findings):
+    if any(RISK_RANK.get(finding.risk, 0) >= threshold for finding in analyzed):
         return 1
     return 0
