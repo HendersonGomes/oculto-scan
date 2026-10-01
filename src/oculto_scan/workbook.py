@@ -255,21 +255,37 @@ def _comments_from(payload: bytes, kind: str) -> list[Comment]:
     return comments
 
 
-def _metadata(parts: dict[str, bytes]) -> dict[str, str]:
+# Properties compared by ``diff``. Kept out of the scan findings on purpose.
+_DIFF_META_KEYS = {
+    "creator",
+    "lastmodifiedby",
+    "created",
+    "modified",
+    "lastprinted",
+    "revision",
+    "application",
+    "appversion",
+    "company",
+    "manager",
+}
+
+
+def _metadata(parts: dict[str, bytes], keys: set[str] | None = None) -> dict[str, str]:
+    allowed = _TEXT_META if keys is None else keys
     found: dict[str, str] = {}
     core = parts.get("docprops/core.xml")
     if core:
         root = _parse_xml(core)
         for node in root.iter():
             name = _local(node.tag)
-            if name.casefold() in _TEXT_META and node.text and node.text.strip():
+            if name.casefold() in allowed and node.text and node.text.strip():
                 found[name] = node.text.strip()
     app = parts.get("docprops/app.xml")
     if app:
         root = _parse_xml(app)
         for node in root:
             name = _local(node.tag)
-            if name.casefold() in _TEXT_META and node.text and node.text.strip():
+            if name.casefold() in allowed and node.text and node.text.strip():
                 found[name] = node.text.strip()
     custom = parts.get("docprops/custom.xml")
     if custom:
@@ -307,6 +323,22 @@ def _defined_names(root: DefusedET.Element, sheets: list[Sheet]) -> list[Defined
             )
         )
     return names
+
+
+def read_document_properties(path: Path) -> dict[str, str]:
+    """Core and app properties for ``diff``. Scan findings stay on the smaller set."""
+    archive = open_office_package(path)
+    try:
+        parts: dict[str, bytes] = {}
+        for info in archive.infolist():
+            if info.is_dir():
+                continue
+            name = info.filename.replace("\\", "/").lstrip("/").casefold()
+            if name in {"docprops/core.xml", "docprops/app.xml"}:
+                parts[name] = read_member(archive, info)
+    finally:
+        archive.close()
+    return _metadata(parts, _DIFF_META_KEYS)
 
 
 def load_workbook(path: Path) -> Workbook:

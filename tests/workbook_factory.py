@@ -36,6 +36,22 @@ def make_pis(base10: str) -> str:
     return f"{raw[0:3]}.{raw[3:8]}.{raw[8:10]}-{raw[10]}"
 
 
+def _meta_value(metadata: dict, *keys: str) -> str:
+    folded = {str(key).casefold(): value for key, value in metadata.items()}
+    for key in keys:
+        value = folded.get(key.casefold())
+        if value:
+            return str(value)
+    return ""
+
+
+def _meta_tag(tag: str, value: str | None, *, xsi: bool = False) -> str:
+    if not value:
+        return ""
+    attrs = ' xsi:type="dcterms:W3CDTF"' if xsi else ""
+    return f"<{tag}{attrs}>{xml_escape(value)}</{tag}>"
+
+
 def xml_escape(value: str) -> str:
     return (
         value.replace("&", "&amp;")
@@ -337,27 +353,35 @@ def build_workbook(
         + "".join(workbook_rels)
         + "</Relationships>"
     )
-    creator = xml_escape(metadata.get("creator", ""))
-    last = xml_escape(metadata.get("lastModifiedBy", ""))
-    title = xml_escape(metadata.get("title", ""))
-    subject = xml_escape(metadata.get("subject", ""))
+    creator = xml_escape(_meta_value(metadata, "creator"))
+    last = xml_escape(_meta_value(metadata, "lastModifiedBy"))
+    title = xml_escape(_meta_value(metadata, "title"))
+    subject = xml_escape(_meta_value(metadata, "subject"))
     parts["docProps/core.xml"] = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
-        'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+        'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+        'xmlns:dcterms="http://purl.org/dc/terms/" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
         f"<dc:creator>{creator}</dc:creator>"
         f"<cp:lastModifiedBy>{last}</cp:lastModifiedBy>"
         f"<dc:title>{title}</dc:title>"
         f"<dc:subject>{subject}</dc:subject>"
-        "</cp:coreProperties>"
+        + _meta_tag("cp:lastPrinted", _meta_value(metadata, "lastPrinted"))
+        + _meta_tag("cp:revision", _meta_value(metadata, "revision"))
+        + _meta_tag("dcterms:created", _meta_value(metadata, "created"), xsi=True)
+        + _meta_tag("dcterms:modified", _meta_value(metadata, "modified"), xsi=True)
+        + "</cp:coreProperties>"
     )
-    company = xml_escape(metadata.get("company", ""))
-    manager = xml_escape(metadata.get("manager", ""))
+    company = xml_escape(_meta_value(metadata, "company", "Company"))
+    manager = xml_escape(_meta_value(metadata, "manager", "Manager"))
     parts["docProps/app.xml"] = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">'
         f"<Company>{company}</Company><Manager>{manager}</Manager>"
-        "</Properties>"
+        + _meta_tag("Application", _meta_value(metadata, "Application"))
+        + _meta_tag("AppVersion", _meta_value(metadata, "AppVersion"))
+        + "</Properties>"
     )
     def _rel(rel_id: str, rel_type: str, target: str) -> str:
         return f'<Relationship Id="{rel_id}" Type="{rel_type}" Target="{target}"/>'
