@@ -26,6 +26,7 @@ jobs:
       - name: Version resource
         run: python packaging/write_version_info.py
       - name: Build
+        # UPX fica desligado no .spec (upx=False). A flag --noupx não vale junto com um .spec.
         run: python -m PyInstaller --noconfirm --clean packaging/oculto-scan.spec
       - name: Smoke
         shell: pwsh
