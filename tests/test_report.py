@@ -39,7 +39,7 @@ def test_html_document_escapes_spreadsheet_text_and_hides_raw_values():
     assert "<!DOCTYPE html>" in page
     assert "@media print" in page
     assert "oculto-scan" in page
-    assert "0.1.5" in page
+    assert "0.1.6" in page
     assert DISCLAIMER in page
     assert 'class="resumo"' in page
     assert ">1</strong><span>médio</span>" in page
@@ -117,7 +117,7 @@ def test_json_shape_is_unchanged():
         "message",
         "value",
     }
-    assert payload["version"] == "0.1.5"
+    assert payload["version"] == "0.1.6"
     assert payload["mapa_da_rede"] == []
     assert "SEGREDO-CRU" not in raw
     assert "\033[" not in raw
@@ -255,7 +255,8 @@ def test_colors_obey_tty_no_color_and_flag(tmp_path, monkeypatch, capsys):
     main([str(path), "--fail-on", "info"])
     plain = capsys.readouterr().out
     assert "\033[" not in plain
-    assert plain.count("cores.xlsx") == 1
+    report = plain.split("Próximos passos:", 1)[0]
+    assert report.count("cores.xlsx") == 1
     assert "› fórmula oculta › alto" in plain
     assert "› comentário › médio" in plain
 

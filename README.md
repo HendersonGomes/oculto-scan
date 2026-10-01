@@ -121,6 +121,8 @@ Planilha `.xlsm` pode ter macro. A ferramenta não executa a macro e não tenta 
 
 Se o VS Code pintar o fim do comando de vermelho, a ferramenta rodou. Esse aviso costuma ser o código de saída 1: existe achado alto.
 
+No fim do texto aparece **Próximos passos**: poucos comandos, com o caminho do arquivo entre aspas, para copiar e colar no PowerShell. Pode ser ver os valores (`--show`), gerar a página HTML, gerar JSON, comparar com `diff` ou abrir a ajuda (`--help`). Se o arquivo for `.xlsm` e o extra de macro não estiver instalado, entra também o comando de instalação. Esse bloco só existe no texto do terminal. JSON e HTML ficam iguais. Em CI ele não aparece. Para desligar no seu computador: `--no-hints`.
+
 Para uma página que dá para mostrar ou imprimir:
 
 ```powershell
@@ -294,6 +296,7 @@ oculto-scan proposta.xlsx --format html --show
 oculto-scan orcamento.xlsx --fail-on medio
 oculto-scan proposta.xlsx --show
 oculto-scan proposta.xlsx --no-color
+oculto-scan proposta.xlsx --no-hints
 oculto-scan proposta.xlsx --ignore .oculto-ignore
 oculto-scan proposta.xlsx --baseline .oculto-baseline.json
 oculto-scan proposta.xlsx --update-baseline .oculto-baseline.json

@@ -384,7 +384,7 @@ def test_json_stays_masked_and_missing_path_exits_2(tmp_path, capsys):
     payload = json.loads(raw)
     assert code == 1
     assert payload["command"] == "diff"
-    assert payload["version"] == "0.1.5"
+    assert payload["version"] == "0.1.6"
     assert "Outra Construtora" not in raw
     assert LIMITS in payload["limits"]
     missing = tmp_path / "nao-existe.xlsx"

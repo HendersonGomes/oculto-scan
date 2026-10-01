@@ -27,6 +27,7 @@ exemplos:
   oculto-scan proposta.xlsx --format html --output relatorio.html
   oculto-scan medicao.xlsm --fail-on medio
   oculto-scan proposta.xlsx --no-color
+  oculto-scan proposta.xlsx --no-hints
   oculto-scan orcamento.xlsx --ignore .oculto-ignore
   oculto-scan orcamento.xlsx --baseline .oculto-baseline.json
   oculto-scan orcamento.xlsx --update-baseline .oculto-baseline.json
@@ -82,6 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="desliga cores ANSI no texto do terminal",
     )
     parser.add_argument(
+        "--no-hints",
+        action="store_true",
+        help="não mostra o bloco de próximos passos no fim do texto",
+    )
+    parser.add_argument(
         "--show",
         action="store_true",
         help=(
@@ -120,14 +126,69 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def running_in_ci() -> bool:
+    """True when CI or GITHUB_ACTIONS is set. Same check that refuses --show."""
+    return bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
+
+
 def show_is_blocked() -> str | None:
     """Refuse --show on a CI runner, where the log would keep the raw values."""
-    if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+    if running_in_ci():
         return (
             "O --show foi recusado porque CI ou GITHUB_ACTIONS está definido. "
             "Neste ambiente o relatório não revela CPF, senha nem outros valores."
         )
     return None
+
+
+def _ps_quote(value: str) -> str:
+    """Double quotes for PowerShell. An embedded quote is escaped with a backtick."""
+    return '"' + value.replace("`", "``").replace('"', '`"') + '"'
+
+
+def _macro_extra_installed() -> bool:
+    try:
+        from oletools import olevba
+    except ImportError:
+        return False
+    return olevba is not None
+
+
+def _example_path(argv_paths: list[str], scanned: list[str]) -> str:
+    if len(argv_paths) == 1:
+        candidate = Path(argv_paths[0])
+        if candidate.suffix.lower() in {".xlsx", ".xlsm", ".xls", ".csv"} or candidate.is_file():
+            return str(candidate)
+    if scanned:
+        return scanned[0]
+    if argv_paths:
+        return argv_paths[0]
+    return "arquivo.xlsx"
+
+
+def _needs_macro_hint(argv_paths: list[str], scanned: list[str]) -> bool:
+    names = [*argv_paths, *scanned]
+    if not any(Path(name).suffix.lower() == ".xlsm" for name in names):
+        return False
+    return not _macro_extra_installed()
+
+
+def next_steps_text(path: str, *, show: bool, needs_macro: bool) -> str:
+    """Up to four commands under one heading. Text output only."""
+    quoted = _ps_quote(path)
+    other_name = "original.xlsx" if Path(path).name.casefold() == "recebido.xlsx" else "recebido.xlsx"
+    commands: list[str] = []
+    if needs_macro:
+        commands.append('python -m pip install "oculto-scan[macro]"')
+    if not show:
+        commands.append(f"oculto-scan {quoted} --show")
+    commands.append(f"oculto-scan {quoted} --format html")
+    commands.append(f'oculto-scan diff {quoted} {_ps_quote(other_name)}')
+    commands.append(f"oculto-scan {quoted} --format json")
+    picked = commands[:3]
+    picked.append("oculto-scan --help")
+    lines = ["Próximos passos:", *[f"  {command}" for command in picked]]
+    return "\n".join(lines) + "\n"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -216,6 +277,16 @@ def main(argv: list[str] | None = None) -> int:
                 network=result.network,
             )
         )
+        if not args.no_hints and not running_in_ci():
+            example = _example_path(list(args.caminhos), result.files)
+            sys.stdout.write(
+                "\n"
+                + next_steps_text(
+                    example,
+                    show=args.show,
+                    needs_macro=_needs_macro_hint(list(args.caminhos), result.files),
+                )
+            )
     return result.exit_code
 
 
