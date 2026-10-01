@@ -1,5 +1,6 @@
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 
 from oculto_scan.cli import main
 from oculto_scan.models import Finding
@@ -113,10 +114,7 @@ def test_json_shape_is_unchanged():
     assert "\033[" not in raw
 
 
-def test_html_from_workbook_masks_even_with_show_and_escapes_cells(tmp_path, monkeypatch, capsys):
-    monkeypatch.chdir(tmp_path)
-    path = tmp_path / "xss.xlsx"
-    script_sheet = _SCRIPT
+def _xss_workbook(path):
     build_workbook(
         path,
         [
@@ -131,26 +129,68 @@ def test_html_from_workbook_masks_even_with_show_and_escapes_cells(tmp_path, mon
                     {"ref": "B2", "author": "Atacante", "text": _SCRIPT},
                 ],
             },
-            {"name": script_sheet, "state": "hidden", "cells": [{"ref": "B2", "value": 10}]},
+            {"name": _SCRIPT, "state": "hidden", "cells": [{"ref": "B2", "value": 10}]},
         ],
+        metadata={"creator": "Autora Sintetica"},
         external_target="file:///C:/Users/ana.sintetica/" + _SCRIPT,
     )
-    code = main([str(path), "--show", "--format", "html", "--fail-on", "info"])
+
+
+def test_html_without_show_stays_masked(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "xss.xlsx"
+    _xss_workbook(path)
+    code = main([str(path), "--format", "html", "--fail-on", "info"])
     captured = capsys.readouterr()
     report = tmp_path / "oculto-scan-relatorio.html"
     assert code == 1
     assert report.is_file()
     assert "oculto-scan-relatorio.html" in captured.out
+    assert not (tmp_path / "oculto-scan-relatorio-revelado.html").exists()
     page = report.read_text(encoding="utf-8")
     assert CPF not in page
     assert "***.982.247-**" in page
     assert "1.35" not in page
+    assert "Autora Sintetica" not in page
     assert _SCRIPT not in page
     assert "<script" not in page.lower()
     assert "&lt;script&gt;" in page
     assert "ana.sintetica" not in page
+    assert "dados revelados" not in page
+    assert "Valor mascarado" in page
     assert DISCLAIMER in page
-    assert "Atacante" not in page
+
+
+def test_html_show_reveals_values_banner_and_escapes_script(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "xss.xlsx"
+    _xss_workbook(path)
+    code = main([str(path), "--show", "--format", "html", "--fail-on", "info"])
+    captured = capsys.readouterr()
+    report = tmp_path / "oculto-scan-relatorio-revelado.html"
+    assert code == 1
+    assert report.is_file()
+    assert "oculto-scan-relatorio-revelado.html" in captured.out
+    assert not (tmp_path / "oculto-scan-relatorio.html").exists()
+    page = report.read_text(encoding="utf-8")
+    assert "Este relatório contém os dados revelados (--show). Não envie este arquivo a terceiros." in page
+    assert 'class="revelado"' in page
+    assert CPF in page
+    assert "1.35" in page
+    assert "Autora Sintetica" in page
+    assert "Custos!B2*1.35" in page
+    assert _SCRIPT not in page
+    assert "<script" not in page.lower()
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
+    assert "Valor revelado" in page
+    assert DISCLAIMER in page
+
+
+def test_html_stamp_uses_local_offset():
+    when = datetime(2026, 9, 30, 21, 55, tzinfo=timezone(timedelta(hours=-3)))
+    page = render_html([], ignored=0, scanned=0, files=[], generated_at=when)
+    assert "30/09/2026 21:55 (UTC-03:00)" in page
+    assert "+0000" not in page
 
 
 def test_html_output_flag_writes_the_given_path(tmp_path, monkeypatch, capsys):

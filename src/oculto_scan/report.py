@@ -6,7 +6,7 @@ import html
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from oculto_scan import __version__
 from oculto_scan.models import RISK_LABEL, RISK_RANK, Finding
@@ -190,17 +190,34 @@ def _esc(value: object) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
+def _format_stamp(when: datetime) -> str:
+    """Local wall time plus an explicit UTC offset, e.g. ``30/09/2026 21:55 (UTC-03:00)``."""
+    if when.tzinfo is None:
+        when = when.astimezone()
+    offset = when.utcoffset() or timedelta(0)
+    total_minutes = int(offset.total_seconds() // 60)
+    sign = "+" if total_minutes >= 0 else "-"
+    hours, minutes = divmod(abs(total_minutes), 60)
+    return f"{when.strftime('%d/%m/%Y %H:%M')} (UTC{sign}{hours:02d}:{minutes:02d})"
+
+
+_REVEALED_BANNER = (
+    "Este relatório contém os dados revelados (--show). Não envie este arquivo a terceiros."
+)
+
+
 def render_html(
     findings: list[Finding],
     *,
     ignored: int,
     scanned: int,
     files: list[str],
+    show: bool = False,
     generated_at: datetime | None = None,
 ) -> str:
-    """Self-contained HTML. Spreadsheet text is escaped. Values stay masked."""
-    when = generated_at or datetime.now().astimezone()
-    stamp = when.strftime("%d/%m/%Y %H:%M:%S %z").strip()
+    """Self-contained HTML. Spreadsheet text is escaped. Values stay masked unless ``show``."""
+    when = generated_at if generated_at is not None else datetime.now().astimezone()
+    stamp = _format_stamp(when)
     counts = summary(findings)
     groups = _by_file(findings)
     scanned_files = files or [name for name, _items in groups]
@@ -217,7 +234,10 @@ def render_html(
     for name, items in groups:
         rows: list[str] = []
         for finding in items:
-            value = finding.evidence_masked or "—"
+            if show and finding.evidence_raw:
+                value = finding.evidence_raw
+            else:
+                value = finding.evidence_masked or "—"
             risk = RISK_LABEL.get(finding.risk, finding.risk)
             rows.append(
                 "<tr class=\"risk-{risk}\">"
@@ -239,13 +259,23 @@ def render_html(
             f"<h2>{_esc(name)}</h2>"
             "<table><thead><tr>"
             "<th>Aba</th><th>Célula</th><th>Tipo</th><th>Risco</th>"
-            "<th>Explicação</th><th>Valor mascarado</th>"
-            "</tr></thead><tbody>"
+            "<th>Explicação</th><th>{value_header}</th>".format(
+                value_header="Valor revelado" if show else "Valor mascarado"
+            )
+            + "</tr></thead><tbody>"
             + "".join(rows)
             + "</tbody></table></section>"
         )
 
+    banner = f'<p class="revelado">{_esc(_REVEALED_BANNER)}</p>' if show else ""
+    lead = (
+        "Relatório de vazamento em planilha de obra. Os valores abaixo estão revelados."
+        if show
+        else "Relatório de vazamento em planilha de obra. Valores mascarados; nada aqui é o conteúdo original."
+    )
     return _HTML.format(
+        banner=banner,
+        lead=_esc(lead),
         version=_esc(__version__),
         stamp=_esc(stamp),
         scanned=_esc(scanned),
@@ -287,6 +317,14 @@ _HTML = """\
     color: var(--ink);
     background: var(--paper);
     font: 15px/1.45 "Segoe UI", Calibri, "Liberation Sans", sans-serif;
+  }}
+  .revelado {{
+    margin: 0;
+    padding: 0.9rem 1.25rem;
+    background: #9b1c1c;
+    color: #fff;
+    font-weight: 700;
+    text-align: center;
   }}
   main {{ max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 3rem; }}
   header h1 {{ font-size: 1.8rem; margin: 0 0 0.2rem; letter-spacing: -0.02em; }}
@@ -360,10 +398,11 @@ _HTML = """\
 </style>
 </head>
 <body>
+{banner}
 <main>
   <header>
     <h1>oculto-scan</h1>
-    <p>Relatório de vazamento em planilha de obra. Valores mascarados; nada aqui é o conteúdo original.</p>
+    <p>{lead}</p>
     <dl class="meta">
       <div><dt>Data</dt><dd>{stamp}</dd></div>
       <div><dt>Versão</dt><dd>{version}</dd></div>

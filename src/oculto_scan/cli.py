@@ -15,6 +15,7 @@ exemplos:
   oculto-scan proposta.xlsx
   oculto-scan pasta-de-licitacao/ --format json
   oculto-scan proposta.xlsx --format html
+  oculto-scan proposta.xlsx --format html --show
   oculto-scan proposta.xlsx --format html --output relatorio.html
   oculto-scan medicao.xlsm --fail-on medio
   oculto-scan proposta.xlsx --no-color
@@ -54,7 +55,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         type=Path,
-        help="arquivo do relatório HTML (padrão: oculto-scan-relatorio.html na pasta atual)",
+        help=(
+            "arquivo do relatório HTML (padrão: oculto-scan-relatorio.html, "
+            "ou oculto-scan-relatorio-revelado.html com --show)"
+        ),
     )
     parser.add_argument(
         "--no-color",
@@ -64,7 +68,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--show",
         action="store_true",
-        help="mostra valores crus no texto do terminal; JSON e HTML continuam mascarados",
+        help=(
+            "mostra os valores no terminal e no HTML; o JSON continua mascarado. "
+            "O HTML revelado não deve ser enviado a terceiros"
+        ),
     )
     parser.add_argument(
         "--fail-on",
@@ -128,7 +135,12 @@ def main(argv: list[str] | None = None) -> int:
             render_json(result.findings, ignored=result.ignored, scanned=result.scanned)
         )
     elif args.formato == "html":
-        target = args.output if args.output is not None else Path("oculto-scan-relatorio.html")
+        if args.output is not None:
+            target = args.output
+        elif args.show:
+            target = Path("oculto-scan-relatorio-revelado.html")
+        else:
+            target = Path("oculto-scan-relatorio.html")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(
             render_html(
@@ -136,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
                 ignored=result.ignored,
                 scanned=result.scanned,
                 files=result.files,
+                show=args.show,
             ),
             encoding="utf-8",
         )

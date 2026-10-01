@@ -12,7 +12,7 @@ import html
 import json
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 from oculto_scan import __version__
@@ -20,7 +20,7 @@ from oculto_scan.analyze import _author_label, _drop_legacy_thread_placeholders
 from oculto_scan.masking import mask_formula, mask_path, mask_text
 from oculto_scan.models import Cell, Comment, DefinedName, Sheet, Workbook
 from oculto_scan.refs import contiguous_groups, format_group, index_to_col
-from oculto_scan.report import DISCLAIMER, stdout_wants_color
+from oculto_scan.report import _REVEALED_BANNER, DISCLAIMER, _format_stamp, stdout_wants_color
 from oculto_scan.workbook import WorkbookParseError, load_workbook, read_document_properties
 from oculto_scan.zipsafe import ZipSafetyError
 
@@ -33,7 +33,7 @@ LIMITS = (
 )
 IDENTICAL = "arquivo não foi salvo novamente"
 METADATA_ONLY = "salvo de novo sem alteração de conteúdo detectada"
-REVEALED_BANNER = "Este relatório contém os dados revelados (--show). Não envie este arquivo a terceiros."
+REVEALED_BANNER = _REVEALED_BANNER
 
 _STATE = {"visible": "visível", "hidden": "oculta", "veryHidden": "muito oculta"}
 _META_FIELDS = (
@@ -107,16 +107,6 @@ def _mask_formula_or_blank(value: str | None) -> str:
     if not value:
         return "—"
     return mask_formula(value)
-
-
-def _format_stamp(when: datetime) -> str:
-    if when.tzinfo is None:
-        when = when.astimezone()
-    offset = when.utcoffset() or timedelta(0)
-    total_minutes = int(offset.total_seconds() // 60)
-    sign = "+" if total_minutes >= 0 else "-"
-    hours, minutes = divmod(abs(total_minutes), 60)
-    return f"{when.strftime('%d/%m/%Y %H:%M')} (UTC{sign}{hours:02d}:{minutes:02d})"
 
 
 def _cell_map(sheet: Sheet) -> dict[str, Cell]:

@@ -4,7 +4,13 @@
 
 - Subcomando `oculto-scan diff ORIGINAL.xlsx RECEBIDO.xlsx`: células, abas, ocultação, comentários, nomes, vínculos e quem salvou.
 - Se os bytes forem iguais, a mensagem é «arquivo não foi salvo novamente». Se só metadados mudaram, «salvo de novo sem alteração de conteúdo detectada».
-- Terminal, JSON mascarado e HTML com colunas Antes/Depois. `--show` revela os valores no terminal e no HTML.
+- Terminal, JSON mascarado e HTML com colunas Antes/Depois. `--show` revela os valores no terminal e no HTML, com a mesma faixa e o mesmo fuso do relatório de varredura.
+
+## 0.1.2
+
+- `--format html --show` revela os valores, com faixa vermelha de aviso. Sem `--show`, o HTML continua mascarado. O nome padrão do arquivo revelado é `oculto-scan-relatorio-revelado.html`.
+- A nota legada do comentário em thread também é reconhecida no Excel em português (`[Comentário encadeado]`, `[Comentário em thread]`) e em espanhol, pelo autor `tc={GUID}` na mesma célula.
+- A data do relatório HTML usa o fuso da máquina, com o deslocamento visível (`30/09/2026 21:55 (UTC-03:00)`).
 
 ## 0.1.1
 

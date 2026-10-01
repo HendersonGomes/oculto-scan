@@ -232,6 +232,55 @@ def test_comment_edit_and_legacy_thread_note_are_not_duplicated(tmp_path):
     assert any(item.type_label == "comentário removido" for item in gone.changes)
 
 
+def test_portuguese_thread_placeholder_is_not_a_second_diff(tmp_path):
+    from oculto_scan.diff import load_diff
+
+    placeholder = (
+        "[Comentário encadeado]\n\n"
+        "Sua versão do Excel permite ler este comentário encadeado; porém, qualquer edição "
+        "será removida se o arquivo for aberto numa versão mais recente do Excel."
+    )
+    sheets = [
+        {
+            "name": "Proposta",
+            "cells": [{"ref": "C2", "value": "preço"}],
+            "comments": [
+                {
+                    "ref": "C2",
+                    "author": "tc={A1B2C3D4-E5F6-7890-ABCD-EF1234567890}",
+                    "text": placeholder,
+                }
+            ],
+            "threads": [{"ref": "C2", "text": "margem interna"}],
+        }
+    ]
+    original = _pair(tmp_path, "original.xlsx", sheets)
+    edited = _pair(
+        tmp_path,
+        "editado.xlsx",
+        [
+            {
+                "name": "Proposta",
+                "cells": [{"ref": "C2", "value": "preço"}],
+                "comments": [
+                    {
+                        "ref": "C2",
+                        "author": "tc={A1B2C3D4-E5F6-7890-ABCD-EF1234567890}",
+                        "text": placeholder,
+                    }
+                ],
+                "threads": [{"ref": "C2", "text": "margem 35% não mostrar"}],
+            }
+        ],
+    )
+    report = load_diff(original, edited)
+    comments = [item for item in report.changes if item.type_label.startswith("comentário")]
+    assert len(comments) == 1
+    blob = comments[0].message + comments[0].before_raw + comments[0].after_raw
+    assert "Comentário encadeado" not in blob
+    assert "tc=" not in blob
+
+
 def test_defined_name_and_external_link(tmp_path):
     from oculto_scan.diff import load_diff
 
