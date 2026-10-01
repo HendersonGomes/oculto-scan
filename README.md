@@ -1,12 +1,26 @@
 # oculto-scan
 
+[![CI](https://github.com/HendersonGomes/oculto-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/HendersonGomes/oculto-scan/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/HendersonGomes/oculto-scan)](https://github.com/HendersonGomes/oculto-scan/releases/latest)
+[![Licença Apache-2.0](https://img.shields.io/github/license/HendersonGomes/oculto-scan)](https://github.com/HendersonGomes/oculto-scan/blob/main/LICENSE)
+
+[![Baixar oculto-scan.exe para Windows](https://img.shields.io/badge/Baixar-oculto--scan.exe-1f5f6b?style=for-the-badge)](https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan.exe)
+
+Se a ferramenta ajudou, deixe uma estrela neste repositório.
+
 Scanner de vazamento de dados em arquivos de obra (planilhas, propostas, medições). Offline, open source.
 
 O oculto-scan lê planilhas `.xlsx` e `.xlsm` **antes** do envio ou da publicação: proposta de preços, boletim de medição, orçamento, laudo. O relatório junta, num lugar só, o que um engenheiro ou um auditor olharia na pasta — aba escondida, fórmula que puxa custo oculto, vínculo para `C:\Users\...`, autor nos metadados, CPF de empregado, senha deixada numa célula.
 
 **nenhum achado não significa arquivo limpo.**
 
-O oculto-scan não está no PyPI. Instale a partir deste repositório, ou baixe o `.exe` de Windows na seção abaixo. O programa verifica vazamento de dados antes do envio. Não é uma ferramenta de invasão.
+O oculto-scan não está no PyPI. Instale a partir deste repositório, ou use o botão acima. O programa verifica vazamento de dados antes do envio. Não é uma ferramenta de invasão.
+
+## Apoie o projeto / serviço de checagem
+
+O projeto aceita apoio pelo [GitHub Sponsors](https://github.com/sponsors/HendersonGomes).
+
+Henderson Gomes faz checagem de arquivos antes do envio para construtoras. O contato é pelo [perfil no GitHub](https://github.com/HendersonGomes) ou pelo perfil dele no LinkedIn.
 
 ## Baixar o programa para Windows (.exe)
 
