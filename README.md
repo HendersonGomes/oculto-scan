@@ -113,6 +113,13 @@ python -m oculto_scan "C:\Users\<voce>\Documentos\proposta.xlsx" --format html
 
 O programa grava `oculto-scan-relatorio.html` na pasta atual e imprime o caminho. Abra no navegador. Para PDF: Ctrl+P e escolha salvar como PDF.
 
+Para ver o texto do comentário, a fórmula inteira e o autor, use `--show`. Esse arquivo mostra os dados de verdade: não envie a terceiros.
+
+```powershell
+python -m oculto_scan "C:\Users\<voce>\Documentos\proposta.xlsx" --format html --show
+start oculto-scan-relatorio-revelado.html
+```
+
 ### 8. Atualizar para uma versão nova
 
 ```powershell
@@ -243,6 +250,7 @@ oculto-scan pasta-de-licitacao/
 oculto-scan medicao.xlsm --format json
 oculto-scan proposta.xlsx --format html
 oculto-scan proposta.xlsx --format html --output relatorio.html
+oculto-scan proposta.xlsx --format html --show
 oculto-scan orcamento.xlsx --fail-on medio
 oculto-scan proposta.xlsx --show
 oculto-scan proposta.xlsx --no-color
@@ -255,7 +263,7 @@ A pasta é varrida de forma recursiva. Arquivos `~$...` (trava do Excel) e exten
 
 No terminal, o arquivo aparece uma vez como cabeçalho. Abaixo, cada achado é `aba › célula › tipo › risco`, com a explicação na linha seguinte. Alto sai em vermelho, médio em amarelo e info em ciano, quando a saída é um terminal. A cor desliga sozinha se a saída não for um TTY, se a variável `NO_COLOR` estiver definida, ou com `--no-color`. O JSON não muda e continua sempre mascarado.
 
-`--format html` grava um relatório para ler e imprimir (no navegador, “Salvar como PDF”). Sem `--output`, o arquivo é `oculto-scan-relatorio.html` na pasta atual, e o caminho é impresso. O HTML é um arquivo só, com CSS embutido, sem JavaScript, sem fonte externa e sem rede. O valor no HTML fica mascarado mesmo com `--show`.
+`--format html` grava um relatório para ler e imprimir (no navegador, “Salvar como PDF”). Sem `--output`, o arquivo é `oculto-scan-relatorio.html` na pasta atual, e o caminho é impresso. O HTML é um arquivo só, com CSS embutido, sem JavaScript, sem fonte externa e sem rede. Sem `--show`, o valor no HTML fica mascarado.
 
 | Código | Significado |
 | --- | --- |
@@ -265,9 +273,11 @@ No terminal, o arquivo aparece uma vez como cabeçalho. Abaixo, cada achado é `
 
 `--fail-on` aceita `alto` (padrão), `medio`, `info` e `nenhum`. `medio` reprova médio e alto. Serve para pre-commit ou CI: o processo sai com erro quando o relatório tem achado grave.
 
-`--show` revela o valor **só no texto do terminal**. O JSON e o HTML continuam mascarados, para não gravar CPF ou senha num artefato. Sem `--show`, CPF sai como `***.982.247-**`, segredo como prefixo e tamanho (`AKIA… (20 caracteres)`), caminho com o usuário trocado (`C:\Users\a***\...`).
+`--show` revela o valor no terminal e no HTML. O JSON continua mascarado. Sem `--show`, CPF sai como `***.982.247-**`, segredo como prefixo e tamanho (`AKIA… (20 caracteres)`), caminho com o usuário trocado (`C:\Users\a***\...`).
 
-Quando o Excel grava um comentário em thread, ele também deixa uma nota antiga de compatibilidade: autor `tc={GUID}` e texto “[Threaded comment] Your version of Excel allows you to read this threaded comment...”. Isso é o mesmo comentário. O relatório fica com um achado só (o thread) e nunca mostra `tc=...` como autor. Uma nota antiga de verdade, com texto próprio, continua no relatório.
+`--format html --show` grava os valores reais (comentário, fórmula com a constante, autor dos metadados). Sem `--output`, o arquivo é `oculto-scan-relatorio-revelado.html`. Uma faixa vermelha no topo avisa para não enviar esse arquivo a terceiros. No Windows, `start oculto-scan-relatorio-revelado.html` abre no navegador.
+
+Quando o Excel grava um comentário em thread, ele também deixa uma nota antiga de compatibilidade. O autor é `tc={GUID}` e o texto começa com “[Threaded comment]”, ou, no Excel em português, “[Comentário encadeado]” / “[Comentário em thread]”. Isso é o mesmo comentário. O relatório fica com um achado só (o thread) e nunca mostra `tc=...` como autor. Uma nota antiga de verdade, com texto próprio, continua no relatório.
 
 ## Exemplo
 
@@ -325,7 +335,7 @@ O update inclui os achados daquela corrida e termina com código 0. Uma célula 
 ## Segurança da própria ferramenta
 
 - Sem rede. Não há cliente HTTP no código, e a tarja não tem dependência de execução.
-- Valor mascarado em toda saída, salvo `--show` no texto do terminal.
+- Valor mascarado em toda saída, salvo `--show` no terminal e no HTML. O JSON continua mascarado.
 - XML com defusedxml (sem entidade externa, sem expansão de DTD).
 - Limite de zip bomb: tamanho do arquivo, tamanho descompactado, número de membros e razão de compressão. A leitura de cada membro também é limitada.
 - Macro não é executada nem descompilada. O binário `vbaProject.bin` não é vasculhado em busca de segredo — de propósito.
