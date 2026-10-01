@@ -22,6 +22,8 @@ O projeto aceita apoio pelo [GitHub Sponsors](https://github.com/sponsors/Hender
 
 Henderson Gomes faz checagem de arquivos antes do envio para construtoras. O contato é pelo [perfil no GitHub](https://github.com/HendersonGomes) ou pelo perfil dele no LinkedIn.
 
+Dúvidas: use o menu Ajuda > Contato da janela ou [abra uma issue](https://github.com/HendersonGomes/oculto-scan/issues).
+
 ## Baixar o programa para Windows (.exe)
 
 Quem não quer instalar Python pode usar a janela. O arquivo é `oculto-scan.exe`, na página de releases:
