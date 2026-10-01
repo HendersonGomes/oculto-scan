@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- Subcomando `oculto-scan diff ORIGINAL.xlsx RECEBIDO.xlsx`: células, abas, ocultação, comentários, nomes, vínculos e quem salvou.
+- Se os bytes forem iguais, a mensagem é «arquivo não foi salvo novamente». Se só metadados mudaram, «salvo de novo sem alteração de conteúdo detectada».
+- Terminal, JSON mascarado e HTML com colunas Antes/Depois. `--show` revela os valores no terminal e no HTML.
+
 ## 0.1.1
 
 - Relatório HTML (`--format html`, `--output`) em um arquivo só, com CSS embutido e estilo de impressão. O valor fica mascarado mesmo com `--show`.

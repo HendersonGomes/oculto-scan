@@ -113,6 +113,15 @@ python -m oculto_scan "C:\Users\<voce>\Documentos\proposta.xlsx" --format html
 
 O programa grava `oculto-scan-relatorio.html` na pasta atual e imprime o caminho. Abra no navegador. Para PDF: Ctrl+P e escolha salvar como PDF.
 
+Para ver o que mudou numa planilha que você enviou e recebeu de volta:
+
+```powershell
+oculto-scan diff "C:\Users\<voce>\Documentos\original.xlsx" "C:\Users\<voce>\Documentos\recebido.xlsx" --format html
+start oculto-scan-diff.html
+```
+
+Se `oculto-scan` não for reconhecido, troque por `python -m oculto_scan diff`. O relatório diz o que mudou e quem salvou por último. Ele não mostra IP: o arquivo não guarda isso. Quem só abriu e não salvou não deixa rastro.
+
 ### 8. Atualizar para uma versão nova
 
 ```powershell
@@ -249,6 +258,8 @@ oculto-scan proposta.xlsx --no-color
 oculto-scan proposta.xlsx --ignore .oculto-ignore
 oculto-scan proposta.xlsx --baseline .oculto-baseline.json
 oculto-scan proposta.xlsx --update-baseline .oculto-baseline.json
+oculto-scan diff enviada.xlsx recebida.xlsx
+oculto-scan diff enviada.xlsx recebida.xlsx --format html
 ```
 
 A pasta é varrida de forma recursiva. Arquivos `~$...` (trava do Excel) e extensões que não sejam `.xlsx`/`.xlsm` são ignorados.
@@ -268,6 +279,20 @@ No terminal, o arquivo aparece uma vez como cabeçalho. Abaixo, cada achado é `
 `--show` revela o valor **só no texto do terminal**. O JSON e o HTML continuam mascarados, para não gravar CPF ou senha num artefato. Sem `--show`, CPF sai como `***.982.247-**`, segredo como prefixo e tamanho (`AKIA… (20 caracteres)`), caminho com o usuário trocado (`C:\Users\a***\...`).
 
 Quando o Excel grava um comentário em thread, ele também deixa uma nota antiga de compatibilidade: autor `tc={GUID}` e texto “[Threaded comment] Your version of Excel allows you to read this threaded comment...”. Isso é o mesmo comentário. O relatório fica com um achado só (o thread) e nunca mostra `tc=...` como autor. Uma nota antiga de verdade, com texto próprio, continua no relatório.
+
+## Comparar o que voltou (`diff`)
+
+`oculto-scan diff ORIGINAL.xlsx RECEBIDO.xlsx` compara a planilha que você enviou com a que o colega devolveu. A saída segue o mesmo estilo: `aba › célula › tipo de mudança`, com antes e depois. `--format json` continua mascarado. `--format html` gera uma página com colunas Antes/Depois e um quadro **Quem salvou**. Sem `--output`, o arquivo é `oculto-scan-diff.html` (ou `oculto-scan-diff-revelado.html` com `--show`).
+
+`--show` revela os valores no terminal e no HTML. No HTML, a faixa vermelha avisa para não enviar esse arquivo a terceiros. O JSON não revela.
+
+Códigos: `0` sem diferença, `1` com diferença, `2` erro de leitura.
+
+- Arquivos byte a byte iguais: «arquivo não foi salvo novamente».
+- Só autor, data ou outro metadado mudou: «salvo de novo sem alteração de conteúdo detectada».
+- Fórmula igual e valor em cache diferente: a célula de origem mudou e o arquivo foi salvo de novo.
+
+Limites, de propósito: o arquivo **não guarda IP** nem o histórico de quem editou cada célula. `lastModifiedBy` é só quem salvou por último e **pode ser editado**. Abrir sem salvar **não deixa rastro**. Para histórico de verdade, use o Histórico de Versões ou Mostrar Alterações no OneDrive/SharePoint, e os logs de auditoria do Microsoft 365 quando precisar do endereço IP.
 
 ## Exemplo
 

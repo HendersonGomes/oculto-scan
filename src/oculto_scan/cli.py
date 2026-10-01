@@ -21,6 +21,8 @@ exemplos:
   oculto-scan orcamento.xlsx --ignore .oculto-ignore
   oculto-scan orcamento.xlsx --baseline .oculto-baseline.json
   oculto-scan orcamento.xlsx --update-baseline .oculto-baseline.json
+  oculto-scan diff enviada.xlsx recebida.xlsx
+  oculto-scan diff enviada.xlsx recebida.xlsx --format html
 
 códigos de saída:
   0  nenhum achado no nível de --fail-on (padrão: alto)
@@ -89,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    if args_list and args_list[0] == "diff":
+        from oculto_scan.diff import run_diff
+
+        return run_diff(args_list[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
     baseline: Path | None = args.baseline
