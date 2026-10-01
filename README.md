@@ -6,7 +6,49 @@ O oculto-scan lê planilhas `.xlsx` e `.xlsm` **antes** do envio ou da publicaç
 
 **nenhum achado não significa arquivo limpo.**
 
-O oculto-scan não está no PyPI. Instale a partir deste repositório.
+O oculto-scan não está no PyPI. Instale a partir deste repositório, ou baixe o `.exe` de Windows na seção abaixo. O programa verifica vazamento de dados antes do envio. Não é uma ferramenta de invasão.
+
+## Baixar o programa para Windows (.exe)
+
+Quem não quer instalar Python pode usar a janela. O arquivo é `oculto-scan.exe`, na página de releases:
+
+https://github.com/HendersonGomes/oculto-scan/releases
+
+Ele ainda **não é assinado**. Não há instalador: o download é só o programa. A macro já vem dentro do `.exe`. Nada é enviado para a internet.
+
+### Aviso do SmartScreen
+
+O Windows pode dizer que o aplicativo não é reconhecido. Isso acontece porque a assinatura ainda não está ativa, não porque o arquivo foi alterado no caminho.
+
+1. Na janela azul, clique em **Mais informações**.
+2. Clique em **Executar assim mesmo**.
+
+Se o botão não aparecer, confira o SHA-256 antes de seguir.
+
+### Conferir o SHA-256
+
+Cada release traz o hash ao lado do `.exe` (arquivo `oculto-scan.exe.sha256` e a mesma linha nas notas). No PowerShell, na pasta onde o arquivo foi salvo:
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\oculto-scan.exe
+```
+
+O hash tem de ser igual ao da release. Se for diferente, apague o arquivo e baixe de novo.
+
+### Desinstalar
+
+Não tem instalador, serviço nem entrada no menu Iniciar. Para remover, apague `oculto-scan.exe`.
+
+### Abrir a janela com Python
+
+Na pasta do projeto, com o ambiente virtual ativado:
+
+```powershell
+python -m pip install -e ".[macro]"
+oculto-scan gui
+```
+
+O mesmo comando é `oculto-scan-gui`. A opção de macro é necessária para ler VBA. O `.exe` já inclui essa parte. A janela pede o arquivo pelo botão **Escolher**. Arrastar e soltar ficou de fora: no Windows isso exige um gancho na janela, e esse tipo de gancho é o que o antivírus costuma marcar.
 
 ## Passo a passo para iniciantes (Windows)
 
@@ -302,6 +344,7 @@ oculto-scan proposta.xlsx --baseline .oculto-baseline.json
 oculto-scan proposta.xlsx --update-baseline .oculto-baseline.json
 oculto-scan diff enviada.xlsx recebida.xlsx
 oculto-scan diff enviada.xlsx recebida.xlsx --format html
+oculto-scan gui
 ```
 
 Sem caminho, o programa mostra a ajuda e sai com código 2. A pasta atual não é varrida. Uma pasta informada no comando é varrida de forma recursiva, incluindo subpastas. Arquivos `~$...` (trava do Excel) e extensões que não sejam `.xlsx`/`.xlsm` são ignorados nessa varredura. Um `.xls` ou `.csv` passado direto no comando não é lido: a saída diz isso e o código é 3.
@@ -427,6 +470,22 @@ O update inclui os achados daquela corrida e termina com código 0. Uma célula 
 - SARIF e uma GitHub Action pronta.
 - Comparar arquivos de licitantes pelo autor e pelos metadados, como **indício** de autoria compartilhada — não prova de conluio.
 
+## Code signing policy
+
+A assinatura de código ainda **não está ativa**. O `oculto-scan.exe` publicado hoje **não é assinado** e não deve ser descrito como assinado. Esta seção deixa o projeto pronto para pedir a assinatura gratuita da SignPath Foundation. O passo de assinatura no GitHub Actions está desligado até existirem o token e os IDs.
+
+Quando a assinatura for ligada, a atribuição exigida será: “Free code signing provided by SignPath.io, certificate by SignPath Foundation”. Essa frase **não** vale para os arquivos publicados agora.
+
+- Author (autor): Henderson Gomes (@HendersonGomes)
+- Reviewer (revisor): Henderson Gomes (@HendersonGomes)
+- Approver (aprovador): Henderson Gomes (@HendersonGomes)
+
+Cada release que venha a ser assinada precisa de aprovação manual do aprovador. O build roda só em runners hospedados pelo GitHub, a partir do código deste repositório, sem cache não verificado. O nome do produto no `.exe` é `oculto-scan` e a versão é a mesma em todos os campos do arquivo.
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+O oculto-scan não tem cliente de rede. Ele lê a planilha que você escolhe e grava o relatório neste computador. defusedxml, tarja e oletools não enviam dados. O programa é uma verificação de privacidade e de vazamento de dados antes do envio. Não explora falhas e não altera o sistema.
+
 ## Licença e créditos
 
 Apache-2.0. Veja `LICENSE` e `NOTICE`.
@@ -434,5 +493,7 @@ Apache-2.0. Veja `LICENSE` e `NOTICE`.
 - [tarja](https://github.com/macmaia/tarja), Maria Alice Maia — CPF, CNPJ (inclusive alfanumérico) e PIS/NIS. Apache-2.0.
 - [defusedxml](https://github.com/tiran/defusedxml) — leitura de XML hostil.
 - [gitleaks](https://github.com/gitleaks/gitleaks) — os padrões de token copiados estão sob MIT, com atribuição no `NOTICE`. A regra de `senha` é deste projeto.
+- [oletools](https://github.com/decalage2/oletools) — leitura estática de macro no extra e no `.exe`. BSD. A macro não é executada.
+- [PyInstaller](https://pyinstaller.org) — só para montar o `.exe` de Windows. O executável não usa UPX.
 
 O oculto-scan não substitui revisão humana nem assessoria jurídica. Não publica pacote no PyPI nesta versão.

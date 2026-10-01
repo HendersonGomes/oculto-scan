@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from oculto_scan.analyze import analyze
 from oculto_scan.diff import IDENTICAL, DiffReport, compare_workbooks, render_diff_html
 from oculto_scan.report import render_html
@@ -38,15 +40,26 @@ def _load_finding(nome: str, dados: bytes, exc: Exception):
     return _unanalyzed(nome, f"Não analisado: planilha ilegível ({exc}).")
 
 
-def scan_bytes(nome: str, dados: bytes, show: bool = False) -> str:
-    """Scan one workbook held in memory and return the HTML report."""
+@dataclass
+class BytesScan:
+    """In-memory scan. ``html`` is the same page :func:`scan_bytes` returns."""
+
+    findings: list
+    network: list
+    html: str
+    scanned: int
+
+
+def inspect_bytes(nome: str, dados: bytes, show: bool = False) -> BytesScan:
+    """Scan one workbook held in memory. Does not write a file or open a network."""
     try:
         workbook = load_workbook_bytes(dados, nome)
     except (FileTooLargeError, ZipSafetyError, WorkbookParseError) as exc:
         finding = _load_finding(nome, dados, exc)
-        return render_html([finding], ignored=0, scanned=0, files=[nome], show=False)
+        html = render_html([finding], ignored=0, scanned=0, files=[nome], show=False)
+        return BytesScan([finding], [], html, 0)
     findings = analyze(workbook, nome)
-    return render_html(
+    html = render_html(
         findings,
         ignored=0,
         scanned=1,
@@ -54,16 +67,22 @@ def scan_bytes(nome: str, dados: bytes, show: bool = False) -> str:
         show=show,
         network=workbook.network_hints,
     )
+    return BytesScan(findings, list(workbook.network_hints), html, 1)
 
 
-def diff_bytes(
+def scan_bytes(nome: str, dados: bytes, show: bool = False) -> str:
+    """Scan one workbook held in memory and return the HTML report."""
+    return inspect_bytes(nome, dados, show=show).html
+
+
+def inspect_diff_bytes(
     nome_original: str,
     original: bytes,
     nome_recebido: str,
     recebido: bytes,
     show: bool = False,
-) -> str:
-    """Compare two workbooks held in memory and return the HTML diff."""
+) -> tuple[DiffReport, str]:
+    """Compare two workbooks held in memory. Does not write a file or open a network."""
     if original == recebido:
         report = DiffReport(
             original=nome_original,
@@ -74,7 +93,7 @@ def diff_bytes(
             headline=IDENTICAL,
             exit_code=0,
         )
-        return render_diff_html(report, show=show)
+        return report, render_diff_html(report, show=show)
     try:
         left = load_workbook_bytes(original, nome_original)
         right = load_workbook_bytes(recebido, nome_recebido)
@@ -95,7 +114,7 @@ def diff_bytes(
             ),
             exit_code=1 if hostile else 3,
         )
-        return render_diff_html(report, show=False)
+        return report, render_diff_html(report, show=False)
     report = compare_workbooks(
         left,
         right,
@@ -105,4 +124,16 @@ def diff_bytes(
         received_props=props_right,
         identical=False,
     )
-    return render_diff_html(report, show=show)
+    return report, render_diff_html(report, show=show)
+
+
+def diff_bytes(
+    nome_original: str,
+    original: bytes,
+    nome_recebido: str,
+    recebido: bytes,
+    show: bool = False,
+) -> str:
+    """Compare two workbooks held in memory and return the HTML diff."""
+    _report, html = inspect_diff_bytes(nome_original, original, nome_recebido, recebido, show=show)
+    return html

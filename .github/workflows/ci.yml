@@ -22,7 +22,7 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev,macro]"
       - name: Lint
-        run: python -m ruff check src tests
+        run: python -m ruff check src tests packaging
       - name: Test
         run: python -m pytest
 
@@ -43,6 +43,7 @@ jobs:
           data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
           deps = list(data["project"]["dependencies"])
           deps.extend(data["project"]["optional-dependencies"]["macro"])
+          deps.extend(data["project"]["optional-dependencies"]["package"])
           Path("runtime-reqs.txt").write_text("\n".join(deps) + "\n", encoding="utf-8")
           PY
           python -m pip_audit --requirement runtime-reqs.txt
