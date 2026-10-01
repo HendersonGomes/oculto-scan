@@ -28,6 +28,18 @@ License: Python Software Foundation License (PSF)
 Used as the XML parser so untrusted workbooks cannot expand entities.
 
 ---------------------------------------------------------------------------
+oletools
+---------------------------------------------------------------------------
+Copyright Philippe Lagadec and contributors
+https://github.com/decalage2/oletools
+License: BSD
+
+The optional extra ``oculto-scan[macro]`` calls oletools (olevba) to read
+VBA source from vbaProject.bin. The macro is not executed and this project
+does not copy oletools. Without the extra, a workbook with a macro is
+reported as not analyzed.
+
+---------------------------------------------------------------------------
 gitleaks
 ---------------------------------------------------------------------------
 Copyright Zachary Rice and contributors

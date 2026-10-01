@@ -621,6 +621,23 @@ def compare_workbooks(
             )
     _compare_names(original, received, changes)
     _compare_links(original, received, changes)
+    if original.has_vba != received.has_vba:
+        _add(
+            changes,
+            sheet="",
+            cell="",
+            type_label="macro",
+            category="estrutura",
+            message=(
+                "Macro presente só na planilha recebida."
+                if received.has_vba
+                else "Macro presente só na planilha original."
+            ),
+            before_raw="vbaProject.bin" if original.has_vba else "",
+            after_raw="vbaProject.bin" if received.has_vba else "",
+            before_masked="vbaProject.bin" if original.has_vba else "—",
+            after_masked="vbaProject.bin" if received.has_vba else "—",
+        )
     metadata, meta_changes = _compare_metadata(original_props, received_props)
     changes.extend(meta_changes)
     changes.sort(key=lambda item: (_CATEGORY_RANK.get(item.category, 9), item.sheet, item.cell, item.type_label))

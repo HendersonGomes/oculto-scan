@@ -10,8 +10,10 @@ from oculto_scan.formulas import (
     parse_formula,
     reference_is_hidden,
 )
-from oculto_scan.masking import mask_formula, mask_link, mask_secret, mask_text
+from oculto_scan.macros import inspect_vba
+from oculto_scan.masking import mask_formula, mask_ip, mask_link, mask_secret, mask_text, mask_unc, mask_url
 from oculto_scan.models import Finding, Workbook
+from oculto_scan.network import collect_network, promote_network
 from oculto_scan.personal import personal_findings
 from oculto_scan.refs import contiguous_groups, format_group, index_to_col, reference_axes
 from oculto_scan.secrets import find_high_entropy, find_secrets
@@ -35,9 +37,14 @@ def analyze(workbook: Workbook, file_label: str, *, entropy: bool = False) -> li
     _drop_legacy_thread_placeholders(workbook)
     findings: list[Finding] = []
     findings.extend(_structure(workbook, file_label))
+    macro_findings, macro_texts = _macros(workbook, file_label)
+    findings.extend(macro_findings)
     findings.extend(_formulas(workbook, file_label))
     findings.extend(personal_findings(workbook, file_label))
     findings.extend(_secrets(workbook, file_label, entropy=entropy))
+    hints = collect_network(workbook, file_label, macro_texts)
+    workbook.network_hints = hints
+    findings.extend(promote_network(hints, findings))
     return _dedupe(findings)
 
 
@@ -87,6 +94,146 @@ def _drop_legacy_thread_placeholders(workbook: Workbook) -> None:
                 and (_is_tc_author(item.author) or _is_thread_placeholder(item.text))
             )
         ]
+
+
+def _macros(workbook: Workbook, file_label: str) -> tuple[list[Finding], list[tuple[str, str, str, str]]]:
+    """Read VBA without running it. Returns findings and texts for the network map."""
+    if not workbook.has_vba:
+        return [], []
+    report = inspect_vba(workbook.vba_bytes or b"")
+    findings: list[Finding] = []
+    texts: list[tuple[str, str, str, str]] = []
+    if report.status == "missing":
+        findings.append(
+            Finding(
+                file=file_label,
+                sheet="",
+                cell="",
+                rule="macro",
+                type_label="macro",
+                risk="medio",
+                message=(
+                    "A pasta contém macro (vbaProject.bin). "
+                    "O código não foi analisado porque o extra oletools não está instalado. "
+                    "Nada foi executado."
+                ),
+                evidence_masked="vbaProject.bin",
+                evidence_raw=None,
+            )
+        )
+        findings.append(
+            Finding(
+                file=file_label,
+                sheet="",
+                cell="",
+                rule="nao-analisado",
+                type_label="não analisado",
+                risk="info",
+                message=(
+                    "Não analisado: macro presente e o extra de leitura não está instalado. "
+                    "Instale com: pip install oculto-scan[macro]. "
+                    "A macro não foi executada e nenhuma senha foi testada."
+                ),
+                evidence_masked="vbaProject.bin",
+                evidence_raw=None,
+            )
+        )
+        return findings, texts
+    if report.status != "ok":
+        findings.append(
+            Finding(
+                file=file_label,
+                sheet="",
+                cell="",
+                rule="macro",
+                type_label="macro",
+                risk="medio",
+                message=(
+                    "A pasta contém macro (vbaProject.bin), mas o projeto VBA não pôde ser lido. "
+                    "Nada foi executado e nenhuma senha foi testada."
+                ),
+                evidence_masked="vbaProject.bin",
+                evidence_raw=None,
+            )
+        )
+        findings.append(
+            Finding(
+                file=file_label,
+                sheet="",
+                cell="",
+                rule="nao-analisado",
+                type_label="não analisado",
+                risk="info",
+                message=(
+                    "Não analisado: projeto VBA ilegível. "
+                    "A senha do editor não foi testada e a macro não foi executada."
+                ),
+                evidence_masked="vbaProject.bin",
+                evidence_raw=None,
+            )
+        )
+        return findings, texts
+
+    names = ", ".join(name for name, _source in report.modules)
+    findings.append(
+        Finding(
+            file=file_label,
+            sheet="",
+            cell="",
+            rule="macro",
+            type_label="macro",
+            risk="medio",
+            message=(
+                f"Macro lida sem executar. Módulos: {names}. "
+                "A senha do editor VBA não foi testada."
+            ),
+            evidence_masked=names,
+            evidence_raw=names,
+        )
+    )
+    for word, risk, line in report.keywords:
+        findings.append(
+            Finding(
+                file=file_label,
+                sheet="",
+                cell="",
+                rule="macro-suspeita",
+                type_label="macro suspeita",
+                risk=risk,
+                message=(
+                    f"A macro cita {word}. Isso pode abrir outro programa ou baixar arquivo. "
+                    "O oculto-scan não executou a macro."
+                ),
+                evidence_masked=word,
+                evidence_raw=line,
+            )
+        )
+    for kind, raw, risk in report.iocs:
+        if kind == "url":
+            masked = mask_url(raw)
+            label = "endereço na macro"
+        elif kind == "ip":
+            masked = mask_ip(raw)
+            label = "IP na macro"
+        else:
+            masked = mask_unc(raw)
+            label = "caminho na macro"
+        findings.append(
+            Finding(
+                file=file_label,
+                sheet="",
+                cell="",
+                rule="macro-ioc",
+                type_label=label,
+                risk=risk,
+                message="Indicador na macro (endereço, IP ou caminho). Nada foi acessado nem executado.",
+                evidence_masked=masked,
+                evidence_raw=raw,
+            )
+        )
+    for name, source in report.modules:
+        texts.append(("macro", "", name, source))
+    return findings, texts
 
 
 def _dedupe(findings: list[Finding]) -> list[Finding]:
@@ -263,24 +410,6 @@ def _structure(workbook: Workbook, file_label: str) -> list[Finding]:
                 ),
                 evidence_masked=mask_link(link),
                 evidence_raw=link,
-            )
-        )
-
-    if workbook.has_vba:
-        findings.append(
-            Finding(
-                file=file_label,
-                sheet="",
-                cell="",
-                rule="macro",
-                type_label="macro",
-                risk="medio",
-                message=(
-                    "A pasta contém macro (vbaProject.bin). "
-                    "O oculto-scan não executa e não descompila macro; só registra a presença."
-                ),
-                evidence_masked="vbaProject.bin",
-                evidence_raw=None,
             )
         )
 

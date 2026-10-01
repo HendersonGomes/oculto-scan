@@ -189,6 +189,8 @@ def build_workbook(
     use_shared_strings: bool = False,
     persons: list[dict] | None = None,
     external_cache: list[dict] | None = None,
+    connections: str | None = None,
+    printer_settings: bytes | None = None,
 ) -> Path:
     """Write a minimal OOXML workbook. ``sheets`` entries accept cells, comments, threads."""
     metadata = metadata or {}
@@ -367,6 +369,17 @@ def build_workbook(
             'Target="vbaProject.bin"/>'
         )
         overrides.append(("/xl/vbaProject.bin", "application/vnd.ms-office.vbaProject"))
+
+    if connections:
+        parts["xl/connections.xml"] = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<connections xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            '<connection id="1" name="sql">'
+            f'<dbPr connection="{xml_escape(connections)}"/>'
+            "</connection></connections>"
+        )
+    if printer_settings is not None:
+        parts["xl/printerSettings/printerSettings1.bin"] = printer_settings
 
     names_xml = ""
     if defined_names:

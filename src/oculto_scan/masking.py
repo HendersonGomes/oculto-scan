@@ -89,6 +89,42 @@ def mask_path(value: str) -> str:
     return _USER_DIR.sub(_repl, text)
 
 
+def mask_piece(value: str) -> str:
+    """First character plus stars. A file extension stays visible."""
+    text = value.strip()
+    if not text:
+        return "*"
+    stem, dot, ext = text.rpartition(".")
+    if dot and stem and ext and ext.isalnum() and len(ext) <= 5 and "\\" not in ext and "/" not in ext:
+        return mask_piece(stem) + "." + ext
+    if len(text) <= 2:
+        return text[:1] + "*"
+    return text[:1] + "*" * min(len(text) - 1, 12)
+
+
+def mask_unc(value: str) -> str:
+    """Keep the shape of a path and hide each name."""
+    text = value.strip()
+    prefix = ""
+    body = text
+    if len(text) >= 2 and text[1] == ":":
+        prefix = text[:2]
+        body = text[2:]
+    leading = 0
+    for char in body:
+        if char in "\\/":
+            leading += 1
+        else:
+            break
+    parts = [part for part in body.replace("/", "\\").split("\\") if part]
+    masked = "\\".join(mask_piece(part) for part in parts) if parts else "*"
+    return prefix + ("\\" * leading) + masked
+
+
+def mask_ip(value: str) -> str:
+    return ".".join((part[:1] + "***") if part else "***" for part in value.split("."))
+
+
 def mask_link(value: str) -> str:
     """External link or hyperlink: URL host, or the file name of a path."""
     text = value.strip()
