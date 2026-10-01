@@ -15,8 +15,10 @@ from oculto_scan.models import RISK_RANK, Finding, NetworkHint, Workbook
 _UNC = re.compile(r"\\\\[A-Za-z0-9._-]{1,63}(?:\\[^\s\"'<>\\|]{1,80})+")
 _DRIVE = re.compile(r"[A-Za-z]:\\[^\s\"'<>|]{1,180}")
 _USER_DIR = re.compile(r"(?i)(?:Users|Usuarios|Usuários)\\([^\\/\s\"']+)")
+# The domain must not continue a path. A letter, digit, hyphen, dot or backslash
+# before it means the pair is a segment, not DOMINIO\usuario.
 _DOMAIN_USER = re.compile(
-    r"(?<![A-Za-z0-9.\\])([A-Za-z][A-Za-z0-9_-]{1,15})\\([A-Za-z][A-Za-z0-9._-]{1,32})\b"
+    r"(?<![A-Za-z0-9.\\-])([A-Za-z][A-Za-z0-9_-]{1,15})\\([A-Za-z][A-Za-z0-9._-]{1,32})\b"
 )
 _SHAREPOINT = re.compile(r"https?://[a-z0-9.-]*sharepoint\.com[^\s<>'\"]*", re.IGNORECASE)
 _ONEDRIVE = re.compile(r"https?://[a-z0-9.-]*onedrive\.live\.com[^\s<>'\"]*", re.IGNORECASE)
@@ -94,6 +96,12 @@ def _hint(
     )
 
 
+def _inside(span: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
+    """True when ``span`` sits inside a path already recorded."""
+    start, end = span
+    return any(left <= start and end <= right for left, right in spans)
+
+
 def _host_of(unc: str) -> str:
     parts = [part for part in unc.replace("/", "\\").split("\\") if part]
     return parts[0] if parts else ""
@@ -130,7 +138,9 @@ def _from_text(text: str, *, file_label: str, sheet: str, cell: str, source: str
             )
         )
 
+    unc_spans: list[tuple[int, int]] = []
     for match in _UNC.finditer(text):
+        unc_spans.append(match.span())
         raw = match.group(0)
         kind = "impressora" if _PRINTER_WORD.search(raw) else "unc"
         add(kind, raw, mask_unc(raw))
@@ -146,6 +156,8 @@ def _from_text(text: str, *, file_label: str, sheet: str, cell: str, source: str
             continue
         add("usuario", user, mask_piece(user))
     for match in _DOMAIN_USER.finditer(text):
+        if _inside(match.span(), unc_spans):
+            continue
         domain, user = match.group(1), match.group(2)
         if domain.casefold() in _SKIP_DOMAIN:
             continue

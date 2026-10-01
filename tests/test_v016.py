@@ -42,7 +42,7 @@ def test_json_and_html_omit_the_block(tmp_path, capsys, monkeypatch):
     assert code == 0
     assert "Próximos passos" not in raw
     assert "oculto-scan --help" not in raw
-    assert payload["version"] == "0.1.7"
+    assert payload["version"] == "0.1.8"
     assert "mapa_da_rede" in payload
 
     code = main([str(path), "--format", "html", "--output", "relatorio.html"])
