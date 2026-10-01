@@ -8,7 +8,10 @@ REPO_URL = "https://github.com/HendersonGomes/oculto-scan"
 MENU_HELP = "Ajuda"
 MENU_UPDATE = "Como atualizar"
 MENU_DOWNLOAD = "Abrir página de download"
+MENU_CONTACT = "Contato / suporte"
 MENU_ABOUT = "Sobre"
+CONTACT_EMAIL = "henderson.gomes11@gmail.com"
+MAILTO_URL = f"mailto:{CONTACT_EMAIL}"
 
 
 def update_help_text() -> str:
@@ -31,9 +34,17 @@ def update_help_text() -> str:
     )
 
 
+def contact_text() -> str:
+    """Support line shown in the window. The README does not repeat the address."""
+    return (
+        "Dúvidas, sugestões ou checagem de arquivos antes de licitação: "
+        f"{CONTACT_EMAIL}"
+    )
+
+
 def about_text(version: str) -> str:
-    """Version, license and repository. Shown in the About box."""
-    return f"oculto-scan {version}\nLicença Apache-2.0\n{REPO_URL}"
+    """Version, license, repository and the same contact line as the support box."""
+    return f"oculto-scan {version}\nLicença Apache-2.0\n{REPO_URL}\n\n{contact_text()}"
 
 
 def open_download_page() -> bool:
@@ -45,3 +56,13 @@ def open_download_page() -> bool:
     import webbrowser
 
     return bool(webbrowser.open(DOWNLOAD_URL))
+
+
+def open_contact_mail() -> bool:
+    """Hand a mailto address to the default mail program.
+
+    This process does not send a message and does not contact a server.
+    """
+    import webbrowser
+
+    return bool(webbrowser.open(MAILTO_URL))

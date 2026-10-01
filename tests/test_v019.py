@@ -20,7 +20,7 @@ def test_about_shows_installed_version_and_license():
     assert text.startswith(f"oculto-scan {__version__}")
     assert "Apache-2.0" in text
     assert REPO_URL in text
-    assert "0.1.9" in text
+    assert __version__ in text
 
 
 def test_download_page_is_handed_to_the_browser(monkeypatch):

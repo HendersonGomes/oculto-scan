@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.10
+
+- Menu **Ajuda** › **Contato / suporte** na janela, também na caixa **Sobre**. O botão abre o programa de e-mail do computador. O oculto-scan não envia a mensagem e não acessa a rede. O endereço não aparece no README: lá a orientação é usar esse menu ou abrir uma issue.
+- O que já estava na 0.1.9, que não teve release: seção **Como atualizar** no README (baixar o `.exe` de novo ou `git pull` na pasta do clone) e menu **Ajuda** com os passos de atualização, a página de download e a versão instalada.
+
 ## 0.1.9
 
 - Seção **Como atualizar** no README: baixar o `.exe` de novo na última release, ou `git pull` na pasta do clone. O programa não procura versão nova sozinho. No GitHub, **Watch** › **Custom** › **Releases** avisa por e-mail.

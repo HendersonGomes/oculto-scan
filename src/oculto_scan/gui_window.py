@@ -14,10 +14,13 @@ from oculto_scan import __version__
 from oculto_scan.gui import hide_console_window
 from oculto_scan.gui_help import (
     MENU_ABOUT,
+    MENU_CONTACT,
     MENU_DOWNLOAD,
     MENU_HELP,
     MENU_UPDATE,
     about_text,
+    contact_text,
+    open_contact_mail,
     open_download_page,
     update_help_text,
 )
@@ -72,6 +75,7 @@ class App:
         help_menu = tk.Menu(menu, tearoff=0)
         help_menu.add_command(label=MENU_UPDATE, command=self._show_update_help)
         help_menu.add_command(label=MENU_DOWNLOAD, command=open_download_page)
+        help_menu.add_command(label=MENU_CONTACT, command=self._show_contact)
         help_menu.add_command(label=MENU_ABOUT, command=self._show_about)
         menu.add_cascade(label=MENU_HELP, menu=help_menu)
         self.root.config(menu=menu)
@@ -81,6 +85,26 @@ class App:
 
     def _show_about(self) -> None:
         messagebox.showinfo(MENU_ABOUT, about_text(__version__), parent=self.root)
+
+    def _show_contact(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title(MENU_CONTACT)
+        dialog.transient(self.root)
+        dialog.configure(bg=_BG)
+        dialog.resizable(False, False)
+        tk.Label(
+            dialog,
+            text=contact_text(),
+            wraplength=420,
+            justify="left",
+            bg=_BG,
+            fg=_INK,
+            font=("Segoe UI", 11),
+        ).pack(padx=16, pady=(16, 8))
+        buttons = tk.Frame(dialog, bg=_BG)
+        buttons.pack(padx=16, pady=(0, 16))
+        ttk.Button(buttons, text="Escrever e-mail", command=open_contact_mail).pack(side="left")
+        ttk.Button(buttons, text="Fechar", command=dialog.destroy).pack(side="left", padx=8)
 
     def _build(self) -> None:
         pad = {"padx": 16, "pady": 4}
