@@ -33,6 +33,7 @@ exemplos:
   oculto-scan orcamento.xlsx --update-baseline .oculto-baseline.json
   oculto-scan diff enviada.xlsx recebida.xlsx
   oculto-scan diff enviada.xlsx recebida.xlsx --format html
+  oculto-scan gui
 
 códigos de saída:
   0  nenhum achado no nível de --fail-on (padrão: alto)
@@ -198,6 +199,10 @@ def main(argv: list[str] | None = None) -> int:
         from oculto_scan.diff import run_diff
 
         return run_diff(args_list[1:])
+    if args_list and args_list[0] == "gui":
+        from oculto_scan.gui import main as gui_main
+
+        return gui_main(args_list[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
     if not args.caminhos:

@@ -35,9 +35,20 @@ https://github.com/decalage2/oletools
 License: BSD
 
 The optional extra ``oculto-scan[macro]`` calls oletools (olevba) to read
-VBA source from vbaProject.bin. The macro is not executed and this project
-does not copy oletools. Without the extra, a workbook with a macro is
-reported as not analyzed.
+VBA source from vbaProject.bin. The Windows executable bundles the same
+library. The macro is not executed and this project does not copy oletools.
+Without the extra, a workbook with a macro is reported as not analyzed.
+
+---------------------------------------------------------------------------
+PyInstaller
+---------------------------------------------------------------------------
+Copyright Hartmut Goebel, Giovanni Bajo, and contributors
+https://pyinstaller.org
+License: GPL-2.0-or-later with the PyInstaller exception for the bootloader
+
+PyInstaller is a build tool for the Windows executable. It is not imported
+by the scanner. The executable is packed without UPX. The bootloader
+exception allows distributing the resulting program under Apache-2.0.
 
 ---------------------------------------------------------------------------
 gitleaks

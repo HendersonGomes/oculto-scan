@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.7
+
+- Janela offline em português (`oculto-scan gui` ou `oculto-scan-gui`), feita com Tk, que já vem com o Python. Escolher um `.xlsx` ou `.xlsm`, escanear, ver o resumo mascarado e revelar só se a pessoa marcar a opção. Dá para salvar ou abrir o HTML e comparar dois arquivos. A lógica é a mesma de `scan_bytes` e `diff_bytes`.
+- O `.exe` de Windows é gerado no GitHub Actions, sem UPX e sem cache, com a versão `0.1.7.0` em todos os campos do arquivo e o nome do produto `oculto-scan`. A macro (oletools) entra no executável. A assinatura SignPath fica desligada. Uma tag `v*` publica a release com o `.exe` e o SHA-256. O arquivo ainda não é assinado.
+
 ## 0.1.6
 
 - O texto do terminal termina com **Próximos passos**: até quatro comandos com o caminho do arquivo, entre aspas, para copiar no PowerShell. Pode aparecer `--show`, HTML, JSON, `diff`, `--help` e, só em `.xlsm` sem o extra, o comando para instalar a leitura de macro.
