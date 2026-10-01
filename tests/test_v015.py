@@ -73,6 +73,7 @@ def test_network_map_groups_signals_and_skips_duplicates(tmp_path):
     assert _LINK in by_kind["unc"]
     assert _USER_PATH in by_kind["caminho"]
     assert "obra.sintetica" in by_kind["usuario"]
+    assert r"obra\orcamento" not in by_kind["usuario"]
     assert r"OBRA\ana.sintetica" in by_kind["usuario"]
     assert r"OBRA\pedro.sintetico" in by_kind["usuario"]
     assert _SHARE in by_kind["sharepoint"]

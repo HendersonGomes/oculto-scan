@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.8
+
+- O mapa da rede deixa de ler um pedaço de caminho UNC como usuário do Windows. Em `\\SERVIDOR-OBRAS\propostas`, o servidor continua como máquina e o caminho como rede; `OBRAS\propostas` não vira `DOMINIO\usuario`. Um `CONSTRUTORA\joao.silva` isolado continua sendo detectado.
+
 ## 0.1.7
 
 - Janela offline em português (`oculto-scan gui` ou `oculto-scan-gui`), feita com Tk, que já vem com o Python. Escolher um `.xlsx` ou `.xlsm`, escanear, ver o resumo mascarado e revelar só se a pessoa marcar a opção. Dá para salvar ou abrir o HTML e comparar dois arquivos. A lógica é a mesma de `scan_bytes` e `diff_bytes`.
