@@ -205,14 +205,7 @@ Se `oculto-scan` não for reconhecido, troque por `python -m oculto_scan diff`. 
 
 ### 8. Atualizar para uma versão nova
 
-```powershell
-cd $HOME\Documents\oculto-scan
-.\.venv\Scripts\Activate.ps1
-git pull
-pip install -e .
-```
-
-Se a pasta do projeto estiver em outro lugar, o `cd` é o caminho dessa pasta. Apagar essa pasta quebra a instalação: o comando deixa de achar o programa.
+A seção [Como atualizar](#como-atualizar) tem os dois caminhos: baixar o `.exe` de novo, ou `git pull` na pasta do clone. O programa não procura versão nova sozinho.
 
 ### Monte uma planilha de demonstração
 
@@ -339,6 +332,46 @@ python -m oculto_scan proposta.xlsx
 ```
 
 Ou acrescente a pasta Scripts ao PATH (em geral `%APPDATA%\Python\Python314\Scripts`, ou a pasta Scripts da instalação). O terminal do VS Code e o Windows Terminal passam a mostrar a cor de risco sozinhos; em `cmd` antigo o modo VT é ligado pela própria ferramenta, sem pacote extra.
+
+## Como atualizar
+
+O programa não procura versão nova sozinho. Quando sair uma release, escolha um dos caminhos.
+
+### Arquivo .exe
+
+Baixe de novo a última versão e apague o `oculto-scan.exe` antigo:
+
+https://github.com/HendersonGomes/oculto-scan/releases/latest
+
+Na pasta onde o arquivo novo foi salvo, confira o SHA-256. O hash tem de ser o da release.
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\oculto-scan.exe
+```
+
+### Instalação pelo código
+
+Entre na pasta do clone. Se o projeto não estiver em Documentos, use o caminho dessa pasta.
+
+```powershell
+cd $HOME\Documents\oculto-scan
+```
+
+```powershell
+git pull
+```
+
+```powershell
+python -m pip install -e ".[macro]"
+```
+
+```powershell
+oculto-scan --version
+```
+
+O número tem de ser a versão que você acabou de baixar.
+
+Para receber um e-mail a cada versão nova, abra https://github.com/HendersonGomes/oculto-scan e clique em **Watch** › **Custom** › **Releases**.
 
 ## Uso
 

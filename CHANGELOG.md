@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.9
+
+- Seção **Como atualizar** no README: baixar o `.exe` de novo na última release, ou `git pull` na pasta do clone. O programa não procura versão nova sozinho. No GitHub, **Watch** › **Custom** › **Releases** avisa por e-mail.
+- Menu **Ajuda** na janela: os mesmos passos, a página de download no navegador e a versão instalada (licença Apache-2.0). Abrir a página não faz o programa buscar nada na rede.
+
 ## 0.1.8
 
 - O mapa da rede deixa de ler um pedaço de caminho UNC como usuário do Windows. Em `\\SERVIDOR-OBRAS\propostas`, o servidor continua como máquina e o caminho como rede; `OBRAS\propostas` não vira `DOMINIO\usuario`. Um `CONSTRUTORA\joao.silva` isolado continua sendo detectado.

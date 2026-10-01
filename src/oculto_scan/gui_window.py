@@ -12,6 +12,15 @@ from tkinter import filedialog, messagebox, ttk
 
 from oculto_scan import __version__
 from oculto_scan.gui import hide_console_window
+from oculto_scan.gui_help import (
+    MENU_ABOUT,
+    MENU_DOWNLOAD,
+    MENU_HELP,
+    MENU_UPDATE,
+    about_text,
+    open_download_page,
+    update_help_text,
+)
 from oculto_scan.gui_logic import (
     Session,
     compare_files,
@@ -54,8 +63,24 @@ class App:
         self._right = tk.StringVar()
         self._show = tk.BooleanVar(value=False)
         self._status = tk.StringVar(value="Nada é enviado para a internet. O arquivo fica neste computador.")
+        self._build_menu()
         self._build()
         self._apply_mode()
+
+    def _build_menu(self) -> None:
+        menu = tk.Menu(self.root)
+        help_menu = tk.Menu(menu, tearoff=0)
+        help_menu.add_command(label=MENU_UPDATE, command=self._show_update_help)
+        help_menu.add_command(label=MENU_DOWNLOAD, command=open_download_page)
+        help_menu.add_command(label=MENU_ABOUT, command=self._show_about)
+        menu.add_cascade(label=MENU_HELP, menu=help_menu)
+        self.root.config(menu=menu)
+
+    def _show_update_help(self) -> None:
+        messagebox.showinfo(MENU_UPDATE, update_help_text(), parent=self.root)
+
+    def _show_about(self) -> None:
+        messagebox.showinfo(MENU_ABOUT, about_text(__version__), parent=self.root)
 
     def _build(self) -> None:
         pad = {"padx": 16, "pady": 4}
