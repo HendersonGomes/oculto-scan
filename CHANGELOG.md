@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+- Seção **Mapa da rede** no texto, no JSON e no HTML: usuário do Windows (`DOMINIO\usuario`), caminho UNC (`\\servidor\pasta`), site de SharePoint ou OneDrive, impressora e nome de máquina ou servidor. Os valores saem mascarados; `--show` revela no terminal e no HTML. O JSON continua mascarado. Um indício que já é achado (por exemplo um vínculo externo) aparece no mapa e não é repetido na lista.
+- Leitura de macro em `.xlsm` sem executar nada e sem testar senha do editor VBA. O extra é `pip install -e ".[macro]"` (oletools). Sem o extra, a macro fica como «não analisado» e a saída é 3. Com o extra, o relatório lista os módulos, palavras suspeitas (AutoOpen, Workbook_Open, Shell, URLDownloadToFile, CreateObject, WScript, PowerShell e outras) e indicadores (endereço, IP, caminho).
+- O `diff` aceita `.xlsm` e aponta quando a macro existe só num dos dois arquivos.
+
 ## 0.1.4
 
 - O HTML escapa o nome do arquivo e traz uma política de conteúdo restritiva. Nome com `{` ou `<script>` não quebra a página.

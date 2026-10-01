@@ -9,7 +9,7 @@ from pathlib import Path
 from oculto_scan.analyze import analyze
 from oculto_scan.baseline import BaselineError, filter_findings, update_baseline
 from oculto_scan.ignore import IgnoreError, apply_ignore, load_ignore
-from oculto_scan.models import RISK_RANK, Finding
+from oculto_scan.models import RISK_RANK, Finding, NetworkHint
 from oculto_scan.workbook import WorkbookParseError, load_workbook
 from oculto_scan.zipsafe import FileTooLargeError, ZipSafetyError
 
@@ -27,6 +27,7 @@ class ScanResult:
     exit_code: int = 0
     messages: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
+    network: list[NetworkHint] = field(default_factory=list)
 
 
 def display_path(path: Path) -> str:
@@ -134,6 +135,7 @@ def scan_files(
     result.scanned = len(workbooks)
     result.files = [display_path(path) for path in workbooks]
     findings: list[Finding] = []
+    network: list[NetworkHint] = []
     for path in explicit:
         label = display_path(path)
         findings.append(
@@ -190,6 +192,7 @@ def scan_files(
             result.messages.append(f"Não analisado ({label}): ilegível.")
             continue
         findings.extend(analyze(workbook, label, entropy=entropy))
+        network.extend(workbook.network_hints)
 
     ignored = 0
     if ignore_rules:
@@ -224,9 +227,21 @@ def scan_files(
         ignored += ignored_now
 
     result.findings = findings
+    result.network = _kept_network(network, findings)
     result.ignored = ignored
     result.exit_code = _exit_code(findings, fail_on)
     return result
+
+
+def _kept_network(hints: list[NetworkHint], findings: list[Finding]) -> list[NetworkHint]:
+    """Drop map rows whose finding was ignored or baselined away."""
+    alive = {(item.file, item.sheet, item.cell, item.evidence_raw) for item in findings if item.rule == "mapa-rede"}
+    kept: list[NetworkHint] = []
+    for hint in hints:
+        if hint.counted and (hint.file, hint.sheet, hint.cell, hint.evidence_raw) not in alive:
+            continue
+        kept.append(hint)
+    return kept
 
 
 def _exit_code(findings: list[Finding], fail_on: str) -> int:

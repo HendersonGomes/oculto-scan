@@ -46,7 +46,14 @@ def scan_bytes(nome: str, dados: bytes, show: bool = False) -> str:
         finding = _load_finding(nome, dados, exc)
         return render_html([finding], ignored=0, scanned=0, files=[nome], show=False)
     findings = analyze(workbook, nome)
-    return render_html(findings, ignored=0, scanned=1, files=[nome], show=show)
+    return render_html(
+        findings,
+        ignored=0,
+        scanned=1,
+        files=[nome],
+        show=show,
+        network=workbook.network_hints,
+    )
 
 
 def diff_bytes(

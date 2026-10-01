@@ -463,6 +463,30 @@ def _person_emails(parts: dict[str, bytes]) -> dict[str, str]:
     return found
 
 
+def _person_texts(parts: dict[str, bytes]) -> list[str]:
+    """Names and ids from persons.xml. E-mails stay in the metadata findings."""
+    texts: list[str] = []
+    seen: set[str] = set()
+    for part_name, payload in parts.items():
+        folded = part_name.casefold()
+        if not folded.endswith(".xml") or "person" not in folded:
+            continue
+        try:
+            root = _parse_xml(payload)
+        except (ZipSafetyError, WorkbookParseError):
+            continue
+        for node in root.iter():
+            if _local(node.tag) != "person":
+                continue
+            for key in ("displayName", "userId", "providerId"):
+                value = (_attr(node, key) or "").strip()
+                if not value or "@" in value or value.casefold() in seen:
+                    continue
+                seen.add(value.casefold())
+                texts.append(value)
+    return texts
+
+
 def _external_cache(parts: dict[str, bytes]) -> list[tuple[str, Cell]]:
     cached: list[tuple[str, Cell]] = []
     for part_name, payload in parts.items():
@@ -550,6 +574,79 @@ def load_workbook_bytes(data: bytes, nome: str, *, max_mb: int | None = None) ->
     finally:
         archive.close()
     return _workbook_from_parts(parts, label=nome)
+
+
+def _connection_strings(parts: dict[str, bytes]) -> list[str]:
+    texts: list[str] = []
+    seen: set[str] = set()
+    for name, payload in parts.items():
+        folded = name.casefold()
+        if not folded.endswith("connections.xml") or folded in seen:
+            continue
+        seen.add(folded)
+        try:
+            root = _parse_xml(payload)
+        except (ZipSafetyError, WorkbookParseError):
+            continue
+        for node in root.iter():
+            if node.text and node.text.strip():
+                texts.append(node.text.strip())
+            for value in node.attrib.values():
+                if value and str(value).strip():
+                    texts.append(str(value).strip())
+    return texts
+
+
+def _binary_strings(payload: bytes) -> list[str]:
+    found: list[str] = []
+
+    def take(chars: list[str]) -> None:
+        if len(chars) < 4:
+            return
+        text = "".join(chars)
+        folded = text.casefold()
+        if "\\" in text or "impressora" in folded or "printer" in folded:
+            found.append(text)
+
+    chars: list[str] = []
+    for byte in payload:
+        if 32 <= byte < 127:
+            chars.append(chr(byte))
+        else:
+            take(chars)
+            chars = []
+    take(chars)
+    chars = []
+    index = 0
+    while index + 1 < len(payload):
+        code = payload[index] | (payload[index + 1] << 8)
+        index += 2
+        if 32 <= code < 127:
+            chars.append(chr(code))
+        else:
+            take(chars)
+            chars = []
+    take(chars)
+    return found
+
+
+def _printer_texts(parts: dict[str, bytes]) -> list[str]:
+    texts: list[str] = []
+    seen: set[str] = set()
+    for name, payload in parts.items():
+        folded = name.casefold()
+        if "printersettings" not in folded or folded in seen:
+            continue
+        seen.add(folded)
+        texts.extend(_binary_strings(payload))
+    return texts
+
+
+def _vba_bytes(parts: dict[str, bytes]) -> bytes | None:
+    for name, payload in parts.items():
+        if name.casefold() == "xl/vbaproject.bin":
+            return payload
+    return None
 
 
 def _workbook_from_parts(parts: dict[str, bytes], *, label: str) -> Workbook:
@@ -686,5 +783,9 @@ def _workbook_from_parts(parts: dict[str, bytes], *, label: str) -> Workbook:
         has_vba=has_vba,
         metadata=metadata,
         external_cache=_external_cache(parts),
+        connections=_connection_strings(parts),
+        printer_texts=_printer_texts(parts),
+        person_texts=_person_texts(parts),
+        vba_bytes=_vba_bytes(parts) if has_vba else None,
     )
     return workbook

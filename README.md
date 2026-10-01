@@ -115,6 +115,10 @@ O `valor:` vem mascarado. O fator `1,35` aparece como `[n]`. Nome de pessoa vira
 
 No fim há um resumo (`2 alto, 1 médio, 1 info`) e a frase **nenhum achado não significa arquivo limpo**: relatório vazio não é atestado de que o arquivo pode sair.
 
+Depois dos achados vem o **Mapa da rede**. É a parte que mostra o que a planilha entrega da estrutura interna: usuário do Windows (também no formato `DOMINIO\usuario`), caminho de rede (`\\servidor\pasta`), site do SharePoint ou do OneDrive, impressora e nome de máquina. Sem `--show`, o nome fica mascarado. O site do SharePoint (o tenant) continua visível, porque ele já está no endereço; a pasta interna não sai.
+
+Planilha `.xlsm` pode ter macro. A ferramenta não executa a macro e não tenta senha. Para ler o código VBA, instale o extra (veja mais abaixo). Sem ele, o relatório diz que a macro não foi analisada e o programa termina com código 3.
+
 Se o VS Code pintar o fim do comando de vermelho, a ferramenta rodou. Esse aviso costuma ser o código de saída 1: existe achado alto.
 
 Para uma página que dá para mostrar ou imprimir:
@@ -207,7 +211,7 @@ Três cenas que o relatório tenta pegar antes do arquivo sair:
 
 ## O que a v0.1 detecta
 
-Só `.xlsx` e `.xlsm`. A macro, quando existe, é **registrada e nunca executada**. Vínculo externo é **anotado e nunca aberto**.
+Só `.xlsx` e `.xlsm`. A macro, quando existe, é **lida só se o extra estiver instalado, e nunca executada**. Vínculo externo é **anotado e nunca aberto**. O mapa da rede junta usuário, caminho UNC, SharePoint, impressora e servidor num bloco só, sem repetir o que já saiu como vínculo ou metadado.
 
 | Achado | Risco usual |
 | --- | --- |
@@ -217,7 +221,13 @@ Só `.xlsx` e `.xlsm`. A macro, quando existe, é **registrada e nunca executada
 | Nome definido que aponta para área oculta ou outra pasta | alto |
 | Nome definido comum | info |
 | Vínculo externo / hiperlink para outro arquivo | alto |
-| Macro (`vbaProject.bin`) | médio |
+| Macro (`vbaProject.bin`) presente | médio |
+| Palavra suspeita na macro (AutoOpen, Workbook_Open, Shell, CreateObject, PowerShell, URLDownloadToFile, WScript) | alto |
+| Environ, CallByName, ADODB.Stream, WinHttp na macro | médio |
+| Endereço, IP ou caminho dentro da macro | alto / médio |
+| Caminho UNC (`\\servidor\pasta`) no mapa da rede | alto |
+| Usuário do Windows, caminho local, impressora, máquina ou servidor | médio |
+| SharePoint ou OneDrive (pasta interna é alto; só o site é médio) | alto / médio |
 | Metadado de autor, empresa, último editor | médio |
 | Célula **visível** cuja fórmula referencia aba, linha ou coluna oculta, ou outra pasta | alto |
 | Constante numérica na fórmula (`=A1*1.35`) | info |
@@ -252,7 +262,13 @@ python -m pip install -e ".[dev]"
 oculto-scan --help
 ```
 
-As versões de `defusedxml` e `tarja` estão fixadas no `pyproject.toml`.
+Para ler macro de `.xlsm` (o código não é executado):
+
+```bash
+python -m pip install -e ".[macro]"
+```
+
+Sem esse extra, um arquivo com macro termina com código 3 e a mensagem pede `oculto-scan[macro]`. As versões de `defusedxml`, `tarja` e, no extra, `oletools` estão fixadas no `pyproject.toml`.
 
 ### Windows
 
@@ -296,7 +312,7 @@ No terminal, o arquivo aparece uma vez como cabeçalho. Abaixo, cada achado é `
 | 0 | Nada no nível de `--fail-on` ou acima |
 | 1 | Há achado nesse nível ou acima |
 | 2 | Caminho ausente, ignore ou linha de base inválidos, ou `--show` recusado no CI |
-| 3 | Não analisado: ilegível, protegido por senha, corrompido, `.xls`/`.csv` passado no comando, ou acima do limite de tamanho |
+| 3 | Não analisado: ilegível, protegido por senha, corrompido, `.xls`/`.csv` passado no comando, acima do limite de tamanho, ou macro sem o extra oletools |
 
 Se algum arquivo da leva não pôde ser lido, o código é 3, mesmo que outro arquivo tenha achado. Arquivo hostil (zip bomb, partes demais) continua no código 1.
 
@@ -386,12 +402,13 @@ O update inclui os achados daquela corrida e termina com código 0. Uma célula 
 - XML com defusedxml (sem entidade externa, sem expansão de DTD).
 - Zip bomb continua recusado: razão de compressão, número de partes e membro criptografado. Tamanho acima do limite (64 MiB no total, 32 MiB por parte) é «não analisado», código 3, com o limite na mensagem. `--max-mb` sobe esse limite de propósito. A leitura de cada parte também é limitada.
 - Relatório HTML e JSON no disco ficam com permissão restrita (só quem rodou) quando o sistema permite. A saída do terminal é UTF-8.
-- Macro não é executada nem descompilada. O binário `vbaProject.bin` não é vasculhado em busca de segredo — de propósito.
+- Macro não é executada e a senha do editor VBA não é testada. Sem o extra `oletools`, o binário não é lido e a saída é 3. Com o extra, só o texto do VBA é lido (módulos, palavras suspeitas e indicadores). O binário não é vasculhado em busca de segredo.
 - Vínculo externo não é resolvido, mesmo que o caminho exista na máquina.
 
 ## Limitações
 
 - Só OOXML (`.xlsx`/`.xlsm`). Um `.xls` ou `.csv` passado no comando é «não analisado» (código 3). Dentro de uma pasta, essas extensões continuam de fora. PDF, DOCX e imagem ficam para depois.
+- Sem `pip install -e ".[macro]"`, a macro de um `.xlsm` não é lida (código 3). Com o extra, a leitura é estática: nada é executado. Projeto VBA ilegível também fica como não analisado, sem tentativa de senha.
 - Aba oculta é risco alto porque o destinatário a revela com um clique. Linha e coluna oculta ficam em médio: planilha de engenharia esconde faixa o tempo todo. O que sobe para alto é a célula visível que **depende** dessa faixa.
 - Fórmula compartilhada é deslocada pela referência relativa do mestre. `INDIRECT` não é avaliado. Validação de dados, cache de tabela dinâmica e objeto incorporado não são lidos.
 - O cabeçalho de CPF e de dado bancário é a célula de texto mais próxima acima na coluna, mesmo que não seja a linha 1. Se a coluna não tem cabeçalho, vale o rótulo à esquerda. Cabeçalho Telefone, Código ou Quantidade não vira alerta de CPF.

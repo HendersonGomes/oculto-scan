@@ -89,6 +89,25 @@ class Sheet:
 
 
 @dataclass
+class NetworkHint:
+    """One internal-network signal. The report groups these in their own section."""
+
+    file: str
+    sheet: str
+    cell: str
+    kind: str
+    type_label: str
+    risk: str
+    message: str
+    evidence_masked: str
+    evidence_raw: str
+    source: str
+    # True when this hint also became a finding. False when an existing
+    # finding already covers the same value at the same or higher risk.
+    counted: bool = False
+
+
+@dataclass
 class Workbook:
     path: str
     sheets: list[Sheet] = field(default_factory=list)
@@ -98,6 +117,11 @@ class Workbook:
     metadata: dict[str, str] = field(default_factory=dict)
     # Cached values from externalLinks sheetDataSet. Not real sheets.
     external_cache: list[tuple[str, Cell]] = field(default_factory=list)
+    connections: list[str] = field(default_factory=list)
+    printer_texts: list[str] = field(default_factory=list)
+    person_texts: list[str] = field(default_factory=list)
+    vba_bytes: bytes | None = None
+    network_hints: list[NetworkHint] = field(default_factory=list)
 
     def sheet_by_name(self, name: str) -> Sheet | None:
         folded = name.casefold()

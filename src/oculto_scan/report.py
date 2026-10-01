@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from oculto_scan import __version__
-from oculto_scan.models import RISK_LABEL, RISK_RANK, Finding
+from oculto_scan.models import RISK_LABEL, RISK_RANK, Finding, NetworkHint
 
 DISCLAIMER = "nenhum achado não significa arquivo limpo."
 
@@ -118,6 +118,26 @@ def _summary_line(counts: dict[str, int], ignored: int, *, color: bool) -> str:
     )
 
 
+def _without_map(findings: list[Finding]) -> list[Finding]:
+    return [finding for finding in findings if finding.rule != "mapa-rede"]
+
+
+def _network_lines(hints: list[NetworkHint], *, show: bool, color: bool) -> list[str]:
+    lines = ["", "Mapa da rede"]
+    if not hints:
+        lines.append("  Nenhum indício de rede interna.")
+        return lines
+    for hint in hints:
+        risk = RISK_LABEL.get(hint.risk, hint.risk)
+        risk_shown = _paint(risk, _RISK_COLOR.get(hint.risk, ""), color=color)
+        where = " › ".join(piece for piece in (hint.sheet, hint.cell, hint.source) if piece)
+        lines.append(f"  {hint.type_label} › {risk_shown} › {where or '—'}")
+        lines.append(f"    {hint.message}")
+        value = hint.evidence_raw if show and hint.evidence_raw else hint.evidence_masked
+        lines.append(f"    valor: {value}")
+    return lines
+
+
 def render_text(
     findings: list[Finding],
     *,
@@ -125,13 +145,14 @@ def render_text(
     ignored: int,
     scanned: int,
     color: bool = False,
+    network: list[NetworkHint] | None = None,
 ) -> str:
     lines: list[str] = []
-    groups = _by_file(findings)
+    groups = _by_file(_without_map(findings))
     if not groups:
         if scanned == 0:
             lines.append("Nenhuma planilha .xlsx ou .xlsm encontrada.")
-        else:
+        elif not findings:
             lines.append(f"Nenhum achado em {scanned} planilha(s).")
     for index, (name, items) in enumerate(groups):
         if index:
@@ -148,6 +169,8 @@ def render_text(
                 lines.append(f"    valor: {finding.evidence_raw}")
             elif finding.evidence_masked:
                 lines.append(f"    valor: {finding.evidence_masked}")
+    if network is not None:
+        lines.extend(_network_lines(network, show=show, color=color))
     counts = summary(findings)
     lines.append("---")
     lines.append(_summary_line(counts, ignored, color=color))
@@ -155,9 +178,33 @@ def render_text(
     return "\n".join(lines) + "\n"
 
 
-def render_json(findings: list[Finding], *, ignored: int, scanned: int) -> str:
+def _network_json(hints: list[NetworkHint]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for hint in hints:
+        rows.append(
+            {
+                "file": hint.file,
+                "sheet": hint.sheet,
+                "cell": hint.cell,
+                "tipo": hint.type_label,
+                "risco": hint.risk,
+                "origem": hint.source,
+                "valor": hint.evidence_masked,
+            }
+        )
+    return rows
+
+
+def render_json(
+    findings: list[Finding],
+    *,
+    ignored: int,
+    scanned: int,
+    network: list[NetworkHint] | None = None,
+) -> str:
     ordered = sorted_findings(findings)
     counts = summary(ordered)
+    visible = _without_map(ordered)
     payload = {
         "tool": "oculto-scan",
         "version": __version__,
@@ -181,8 +228,9 @@ def render_json(findings: list[Finding], *, ignored: int, scanned: int) -> str:
                 "message": finding.message,
                 "value": finding.evidence_masked,
             }
-            for finding in ordered
+            for finding in visible
         ],
+        "mapa_da_rede": _network_json(network or []),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
@@ -254,6 +302,35 @@ _REVEALED_BANNER = (
 )
 
 
+def _network_html(hints: list[NetworkHint], *, show: bool) -> str:
+    if not hints:
+        body = '<p class="empty">Nenhum indício de rede interna.</p>'
+    else:
+        rows: list[str] = []
+        for hint in hints:
+            value = hint.evidence_raw if show and hint.evidence_raw else hint.evidence_masked
+            risk = RISK_LABEL.get(hint.risk, hint.risk)
+            where = " › ".join(piece for piece in (hint.sheet, hint.cell, hint.source) if piece)
+            rows.append(
+                f'<tr class="risk-{_esc(hint.risk)}">'
+                f"<td>{_esc(hint.type_label)}</td>"
+                f'<td><span class="badge badge-{_esc(hint.risk)}">{_esc(risk)}</span></td>'
+                f"<td>{_esc(where or '—')}</td>"
+                f"<td>{_esc(hint.message)}</td>"
+                f'<td class="value">{_esc(value)}</td>'
+                "</tr>"
+            )
+        header = "Valor revelado" if show else "Valor mascarado"
+        body = (
+            "<table><thead><tr>"
+            f"<th>Tipo</th><th>Risco</th><th>Onde</th><th>Explicação</th><th>{_esc(header)}</th>"
+            "</tr></thead><tbody>"
+            + "".join(rows)
+            + "</tbody></table>"
+        )
+    return f'<section class="mapa"><h2>Mapa da rede</h2>{body}</section>'
+
+
 def render_html(
     findings: list[Finding],
     *,
@@ -262,23 +339,26 @@ def render_html(
     files: list[str],
     show: bool = False,
     generated_at: datetime | None = None,
+    network: list[NetworkHint] | None = None,
 ) -> str:
     """Self-contained HTML. Spreadsheet text is escaped. Values stay masked unless ``show``."""
     when = generated_at if generated_at is not None else datetime.now().astimezone()
     stamp = _format_stamp(when)
     counts = summary(findings)
-    groups = _by_file(findings)
+    groups = _by_file(_without_map(findings))
     scanned_files = files or [name for name, _items in groups]
     file_items = "".join(f"<li>{_esc(name)}</li>" for name in scanned_files) or "<li>Nenhuma planilha.</li>"
 
     sections: list[str] = []
     if not groups:
-        empty = (
-            "Nenhuma planilha .xlsx ou .xlsm encontrada."
-            if scanned == 0
-            else f"Nenhum achado em {scanned} planilha(s)."
-        )
-        sections.append(f'<p class="empty">{_esc(empty)}</p>')
+        if scanned == 0:
+            empty = "Nenhuma planilha .xlsx ou .xlsm encontrada."
+        elif not findings:
+            empty = f"Nenhum achado em {scanned} planilha(s)."
+        else:
+            empty = ""
+        if empty:
+            sections.append(f'<p class="empty">{_esc(empty)}</p>')
     for name, items in groups:
         rows: list[str] = []
         for finding in items:
@@ -329,6 +409,7 @@ def render_html(
         total=_esc(counts["total"]),
         files=file_items,
         sections="".join(sections),
+        network=_network_html(network, show=show) if network is not None else "",
         disclaimer=_esc(DISCLAIMER),
     )
 
@@ -464,6 +545,7 @@ _HTML = """\
     <article><strong>{total}</strong><span>no total</span></article>
   </section>
   {sections}
+  {network}
   <footer>{disclaimer}</footer>
 </main>
 </body>

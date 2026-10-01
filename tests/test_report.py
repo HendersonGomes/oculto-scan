@@ -39,7 +39,7 @@ def test_html_document_escapes_spreadsheet_text_and_hides_raw_values():
     assert "<!DOCTYPE html>" in page
     assert "@media print" in page
     assert "oculto-scan" in page
-    assert "0.1.4" in page
+    assert "0.1.5" in page
     assert DISCLAIMER in page
     assert 'class="resumo"' in page
     assert ">1</strong><span>médio</span>" in page
@@ -98,7 +98,15 @@ def test_text_groups_the_file_and_paints_risk(monkeypatch):
 def test_json_shape_is_unchanged():
     raw = render_json([_finding()], ignored=0, scanned=1)
     payload = json.loads(raw)
-    assert set(payload) == {"tool", "version", "disclaimer", "scanned", "summary", "findings"}
+    assert set(payload) == {
+        "tool",
+        "version",
+        "disclaimer",
+        "scanned",
+        "summary",
+        "findings",
+        "mapa_da_rede",
+    }
     assert set(payload["findings"][0]) == {
         "file",
         "sheet",
@@ -109,7 +117,8 @@ def test_json_shape_is_unchanged():
         "message",
         "value",
     }
-    assert payload["version"] == "0.1.4"
+    assert payload["version"] == "0.1.5"
+    assert payload["mapa_da_rede"] == []
     assert "SEGREDO-CRU" not in raw
     assert "\033[" not in raw
 

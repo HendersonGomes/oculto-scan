@@ -37,7 +37,10 @@ códigos de saída:
   0  nenhum achado no nível de --fail-on (padrão: alto)
   1  há achado nesse nível ou acima
   2  caminho ausente, ignore/linha de base inválidos, ou --show recusado no CI
-  3  não analisado (ilegível, senha, corrompido, .xls/.csv ou acima do limite)
+  3  não analisado (ilegível, senha, corrompido, .xls/.csv, acima do limite,
+     ou macro sem o extra oletools)
+
+Macro em .xlsm só é lida com: pip install "oculto-scan[macro]". Sem o extra, a saída é 3.
 
 nenhum achado não significa arquivo limpo.
 """
@@ -176,7 +179,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.formato == "json":
         sys.stdout.write(
-            render_json(result.findings, ignored=result.ignored, scanned=result.scanned)
+            render_json(
+                result.findings,
+                ignored=result.ignored,
+                scanned=result.scanned,
+                network=result.network,
+            )
         )
     elif args.formato == "html":
         if args.output is not None:
@@ -193,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
                 scanned=result.scanned,
                 files=result.files,
                 show=args.show,
+                network=result.network,
             ),
         )
         print(f"Relatório salvo em {target}")
@@ -204,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
                 ignored=result.ignored,
                 scanned=result.scanned,
                 color=stdout_wants_color(no_color=args.no_color),
+                network=result.network,
             )
         )
     return result.exit_code
