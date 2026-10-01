@@ -2,11 +2,167 @@
 
 Scanner de vazamento de dados em arquivos de obra (planilhas, propostas, medições). Offline, open source.
 
-A v0.1 lê planilhas `.xlsx` e `.xlsm` **antes** do envio ou da publicação: proposta de preços, boletim de medição, orçamento, laudo. O relatório junta, num lugar só, o que um engenheiro ou um auditor olharia na pasta — aba escondida, fórmula que puxa custo oculto, vínculo para `C:\Users\...`, autor nos metadados, CPF de empregado, senha deixada numa célula.
+O oculto-scan lê planilhas `.xlsx` e `.xlsm` **antes** do envio ou da publicação: proposta de preços, boletim de medição, orçamento, laudo. O relatório junta, num lugar só, o que um engenheiro ou um auditor olharia na pasta — aba escondida, fórmula que puxa custo oculto, vínculo para `C:\Users\...`, autor nos metadados, CPF de empregado, senha deixada numa célula.
 
 **nenhum achado não significa arquivo limpo.**
 
 O oculto-scan não está no PyPI. Instale a partir deste repositório.
+
+## Passo a passo para iniciantes (Windows)
+
+Este caminho é para quem nunca abriu um terminal. Cada bloco abaixo é um comando: copie, cole no terminal e aperte Enter. Espere a resposta antes do próximo.
+
+### 1. Abrir o terminal
+
+Escolha um dos dois:
+
+- Tecla Windows, digite `PowerShell`, Enter. Abre uma janela com um cursor piscando.
+- No VS Code: menu **Terminal › Novo Terminal**. O painel de baixo é o mesmo PowerShell.
+
+### 2. Conferir Python e Git
+
+```powershell
+python --version
+git --version
+```
+
+O Python precisa ser 3.10 ou mais novo (`Python 3.12.x`, `Python 3.14.x`, etc.). O Git responde com `git version ...`.
+
+Se o PowerShell disser que `python` não é reconhecido, instale por um destes caminhos e deixe marcada a opção **Add python.exe to PATH**:
+
+- [python.org/downloads](https://www.python.org/downloads/)
+- [Microsoft Store](https://apps.microsoft.com/store/search/Python): procure “Python 3.12” (ou 3.14)
+
+Se `git` não for reconhecido, instale em [git-scm.com/download/win](https://git-scm.com/download/win). Pode aceitar as opções padrão da instalação.
+
+Feche o terminal, abra de novo e repita os dois comandos. Só siga em frente quando os dois responderem com um número de versão.
+
+### 3. Baixar o programa
+
+```powershell
+cd $HOME\Documents
+git clone https://github.com/HendersonGomes/oculto-scan
+cd oculto-scan
+```
+
+`cd` entra numa pasta. `$HOME` é a sua pasta de usuário (`C:\Users\<voce>`). O segundo comando baixa o projeto. O terceiro entra na pasta `oculto-scan`.
+
+Se o `cd $HOME\Documents` disser que a pasta não existe, use `cd $HOME\Documentos`.
+
+### 4. Instalar
+
+```powershell
+python -m pip install -e .
+```
+
+O ponto no final é a pasta em que você está. A instalação usa a internet esta única vez, para buscar duas bibliotecas pequenas. A leitura da planilha, depois, é offline: nada é enviado para fora.
+
+Se aparecer erro de arquivo não encontrado, o terminal não está dentro de `oculto-scan`. Rode `cd oculto-scan` de novo.
+
+### 5. Se `oculto-scan` não for reconhecido
+
+No fim da instalação pode aparecer um aviso de que a pasta **Scripts** está fora do PATH. Aí o comando `oculto-scan` sozinho não funciona. Há dois jeitos:
+
+**Jeito simples,** que já funciona sem mudar nada. Use sempre esta forma:
+
+```powershell
+python -m oculto_scan --help
+```
+
+**Jeito permanente.** Copie a pasta Scripts que o aviso mostrou (algo como `C:\Users\<voce>\AppData\Roaming\Python\Python314\Scripts`) e cole no lugar do trecho `<pasta Scripts mostrada no aviso>`:
+
+```powershell
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path","User") + ";<pasta Scripts mostrada no aviso>", "User")
+```
+
+Feche o terminal e abra outro. Aí `oculto-scan --help` passa a funcionar. Se não quiser mexer no PATH, fique no `python -m oculto_scan`.
+
+### 6. Rodar na sua planilha
+
+No Explorer, clique uma vez no arquivo `.xlsx`. Segure Shift, clique com o botão direito e escolha **Copiar como caminho**. Cole no terminal, entre aspas, depois do nome do programa:
+
+```powershell
+python -m oculto_scan "C:\Users\<voce>\Documentos\proposta.xlsx"
+```
+
+As aspas importam quando o caminho tem espaço.
+
+A pasta Documentos muitas vezes está no OneDrive. Nesse caso o caminho copiado é `C:\Users\<voce>\OneDrive\Documentos\proposta.xlsx`. Use o caminho que o Explorer copiou.
+
+Erro comum: colar só o caminho, sem `oculto-scan` ou `python -m oculto_scan` na frente. O PowerShell tenta abrir a planilha como se fosse um comando e responde que não reconhece o arquivo.
+
+### 7. Como ler o resultado
+
+O nome do arquivo aparece uma vez, no topo. Cada achado embaixo segue `aba › célula › tipo › risco`, com uma frase explicando e, quando cabe, uma linha `valor:`.
+
+- **alto**, em vermelho: olhe antes de enviar a planilha.
+- **médio**, em amarelo: vale revisar.
+- **info**, em ciano: anotação. Sozinha, não reprova o arquivo.
+
+O `valor:` vem mascarado. O fator `1,35` aparece como `[n]`. Nome de pessoa vira as primeiras letras e asteriscos. O texto de um comentário não é impresso; só o tamanho (`texto mascarado (14 caracteres)`).
+
+No fim há um resumo (`2 alto, 1 médio, 1 info`) e a frase **nenhum achado não significa arquivo limpo**: relatório vazio não é atestado de que o arquivo pode sair.
+
+Se o VS Code pintar o fim do comando de vermelho, a ferramenta rodou. Esse aviso costuma ser o código de saída 1: existe achado alto.
+
+Para uma página que dá para mostrar ou imprimir:
+
+```powershell
+python -m oculto_scan "C:\Users\<voce>\Documentos\proposta.xlsx" --format html
+```
+
+O programa grava `oculto-scan-relatorio.html` na pasta atual e imprime o caminho. Abra no navegador. Para PDF: Ctrl+P e escolha salvar como PDF.
+
+### 8. Atualizar para uma versão nova
+
+```powershell
+cd $HOME\Documents\oculto-scan
+git pull
+python -m pip install -e .
+```
+
+Se a pasta do projeto estiver em outro lugar, o `cd` é o caminho dessa pasta.
+
+### Monte uma planilha de demonstração
+
+1. Abra o Excel e crie uma pasta em branco.
+2. Renomeie a primeira aba para `Proposta` (clique duas vezes no nome da aba).
+3. Clique no `+` e crie a aba `Custos`.
+4. Em `Custos`, na célula B2, digite `1000`.
+5. Volte para `Proposta`, célula C2, e digite `=Custos!B2*1,35`. Enter. A célula mostra `1350`.
+6. Clique com o botão direito na aba `Custos` e escolha **Ocultar**.
+7. Em `Proposta`, clique com o botão direito em C2, escolha comentário (Novo comentário ou Inserir comentário) e escreva uma frase curta, por exemplo `conferir margem`.
+8. Arquivo › Salvar como › Pasta de Trabalho do Excel (`.xlsx`), na pasta Documentos, com o nome `proposta.xlsx`.
+
+Rode o comando do passo 6 apontando para esse arquivo. O resultado fica nesta linha, com o seu caminho no lugar de `proposta.xlsx`:
+
+```text
+proposta.xlsx
+  Custos › — › aba oculta › alto
+    Aba oculta. Em proposta, orçamento ou edital isso costuma esconder custo, margem ou memória de cálculo, e o destinatário revela a aba com um clique.
+  Proposta › C2 › fórmula oculta › alto
+    Célula visível cuja fórmula referencia aba, linha ou coluna oculta (Custos!B2). O número mostrado pode depender de custo ou margem que não aparece na impressão.
+    valor: Custos!B2*[n]
+  Proposta › C2 › comentário › médio
+    Há comentário em thread nesta célula. Comentário interno muitas vezes descreve margem, premissa ou ressalva que não está na célula visível.
+    valor: texto mascarado (15 caracteres)
+  Proposta › C2 › constante › info
+    Fórmula com constante numérica. Pode revelar o método de margem ou BDI (por exemplo um fator multiplicando o custo). É informativo: constante sozinha não prova vazamento.
+    valor: Custos!B2*[n]
+---
+Resumo: 2 alto, 1 médio, 1 info (4 no total). 0 ignorado(s).
+nenhum achado não significa arquivo limpo.
+```
+
+O que cada linha quer dizer:
+
+- A aba `Custos` está escondida, e isso é alto: quem recebe a planilha mostra a aba com um clique.
+- A célula visível C2 multiplica um número dessa aba. O `1,35` não sai no relatório; no lugar fica `[n]`.
+- O comentário entra uma vez só, como médio. No Excel atual o menu é um comentário em thread; a linha diz isso. Se o menu foi Nota, a linha diz «nota antiga» e pode mostrar o autor mascarado. O Excel às vezes grava as duas coisas juntas; a ferramenta mostra um achado só.
+- A constante é info: registra que existe um fator, sem tratar isso como vazamento grave.
+- O Excel também grava quem salvou o arquivo. Pode aparecer uma linha extra de metadado, em médio, com o nome mascarado. A frase que você escreveu no comentário não aparece.
+
+O `1350` na tela pode ir na proposta. O ponto do relatório é a fórmula ainda apontar para a aba oculta.
 
 ## O que isto não é
 
@@ -56,7 +212,9 @@ Dado bancário só aparece quando há rótulo (`banco`, `agência`, `conta`) ou 
 
 Um subconjunto pequeno de padrões no estilo do [gitleaks](https://github.com/gitleaks/gitleaks) (MIT; atribuição no `NOTICE`): chave de acesso AWS, PAT do GitHub, chave de API do GCP, token de bot do Slack, cabeçalho de chave privada, além de uma regra própria para `senha` / `password` / `api_key`. Detecção por entropia fica **desligada**; `--entropy` liga e tende a falso positivo.
 
-## Instalação
+## Instalação técnica
+
+Para quem já usa terminal e vai desenvolver. Quem só vai rodar a ferramenta no Windows segue o passo a passo do início.
 
 Python 3.10 ou mais novo.
 
@@ -67,14 +225,27 @@ oculto-scan --help
 
 As versões de `defusedxml` e `tarja` estão fixadas no `pyproject.toml`.
 
+### Windows
+
+No PowerShell, se `oculto-scan` não for reconhecido porque a pasta Scripts do Python está fora do PATH, use:
+
+```powershell
+python -m oculto_scan proposta.xlsx
+```
+
+Ou acrescente a pasta Scripts ao PATH (em geral `%APPDATA%\Python\Python314\Scripts`, ou a pasta Scripts da instalação). O terminal do VS Code e o Windows Terminal passam a mostrar a cor de risco sozinhos; em `cmd` antigo o modo VT é ligado pela própria ferramenta, sem pacote extra.
+
 ## Uso
 
 ```bash
 oculto-scan proposta.xlsx
 oculto-scan pasta-de-licitacao/
 oculto-scan medicao.xlsm --format json
+oculto-scan proposta.xlsx --format html
+oculto-scan proposta.xlsx --format html --output relatorio.html
 oculto-scan orcamento.xlsx --fail-on medio
 oculto-scan proposta.xlsx --show
+oculto-scan proposta.xlsx --no-color
 oculto-scan proposta.xlsx --ignore .oculto-ignore
 oculto-scan proposta.xlsx --baseline .oculto-baseline.json
 oculto-scan proposta.xlsx --update-baseline .oculto-baseline.json
@@ -82,7 +253,9 @@ oculto-scan proposta.xlsx --update-baseline .oculto-baseline.json
 
 A pasta é varrida de forma recursiva. Arquivos `~$...` (trava do Excel) e extensões que não sejam `.xlsx`/`.xlsm` são ignorados.
 
-Cada linha do texto segue `arquivo › aba › célula › tipo › risco`, com uma explicação curta. O JSON repete o mesmo conteúdo, sempre mascarado.
+No terminal, o arquivo aparece uma vez como cabeçalho. Abaixo, cada achado é `aba › célula › tipo › risco`, com a explicação na linha seguinte. Alto sai em vermelho, médio em amarelo e info em ciano, quando a saída é um terminal. A cor desliga sozinha se a saída não for um TTY, se a variável `NO_COLOR` estiver definida, ou com `--no-color`. O JSON não muda e continua sempre mascarado.
+
+`--format html` grava um relatório para ler e imprimir (no navegador, “Salvar como PDF”). Sem `--output`, o arquivo é `oculto-scan-relatorio.html` na pasta atual, e o caminho é impresso. O HTML é um arquivo só, com CSS embutido, sem JavaScript, sem fonte externa e sem rede. O valor no HTML fica mascarado mesmo com `--show`.
 
 | Código | Significado |
 | --- | --- |
@@ -92,85 +265,35 @@ Cada linha do texto segue `arquivo › aba › célula › tipo › risco`, com 
 
 `--fail-on` aceita `alto` (padrão), `medio`, `info` e `nenhum`. `medio` reprova médio e alto. Serve para pre-commit ou CI: o processo sai com erro quando o relatório tem achado grave.
 
-`--show` revela o valor **só no texto do terminal**. O JSON continua mascarado, para não gravar CPF ou senha em artefato de CI. Sem `--show`, CPF sai como `***.982.247-**`, segredo como prefixo e tamanho (`AKIA… (20 caracteres)`), caminho com o usuário trocado (`C:\Users\a***\...`).
+`--show` revela o valor **só no texto do terminal**. O JSON e o HTML continuam mascarados, para não gravar CPF ou senha num artefato. Sem `--show`, CPF sai como `***.982.247-**`, segredo como prefixo e tamanho (`AKIA… (20 caracteres)`), caminho com o usuário trocado (`C:\Users\a***\...`).
+
+Quando o Excel grava um comentário em thread, ele também deixa uma nota antiga de compatibilidade: autor `tc={GUID}` e texto “[Threaded comment] Your version of Excel allows you to read this threaded comment...”. Isso é o mesmo comentário. O relatório fica com um achado só (o thread) e nunca mostra `tc=...` como autor. Uma nota antiga de verdade, com texto próprio, continua no relatório.
 
 ## Exemplo
 
-Relatório real da v0.1 sobre uma planilha sintética (nomes fictícios, CPF com dígito calculado, sem dado de pessoa real). A fórmula era `Custos!B2*1.35`; o fator não aparece. O caminho era `C:\Users\ana.sintetica\...`.
+Saída de terminal (sem as cores) de uma planilha sintética: aba oculta `Custos`, fórmula `Custos!B2*1.35` em `Proposta!C2` e um comentário nessa célula. O fator numérico não aparece.
 
 ```text
-proposta-sintetica.xlsx › — › — › vínculo externo › alto
-  Vínculo externo ou hiperlink para outro arquivo. Caminhos locais (C:\Users\...) identificam a máquina e podem apontar para uma planilha de custo que não deveria sair.
-  valor: file:///C:/Users/a***/Documentos/custos-internos.xlsx
-proposta-sintetica.xlsx › — › CustoUnitario › nome definido › alto
-  Nome definido aponta para área oculta ou para outra pasta. Uma célula visível pode usar esse nome sem mostrar a origem.
-  valor: Custos!$B$2
-proposta-sintetica.xlsx › Custos › — › aba oculta › alto
-  Aba oculta. Em proposta, orçamento ou edital isso costuma esconder custo, margem ou memória de cálculo, e o destinatário revela a aba com um clique.
-proposta-sintetica.xlsx › Margem › — › aba muito oculta › alto
-  Aba muito oculta (very hidden). Não aparece na lista de abas; só sai desse estado por VBA ou pelo editor de XML. Sinal forte de conteúdo que não deveria seguir com o arquivo.
-proposta-sintetica.xlsx › Medicao › A4 › segredo › alto
-  Possível segredo (aws-access-token). Chave, token ou senha não devem viajar dentro de proposta, medição ou laudo.
-  valor: AKIA… (20 caracteres)
-proposta-sintetica.xlsx › Medicao › B2 › CPF › alto
-  Lista de CPFs com dígito verificador válido e contexto de pessoa (cabeçalho, rótulo ou texto como funcionário, PIS ou salário). Vários CPFs no mesmo lugar indicam relação de empregados.
-  valor: ***.982.247-**
-proposta-sintetica.xlsx › Medicao › B3 › CPF › alto
-  Lista de CPFs com dígito verificador válido e contexto de pessoa (cabeçalho, rótulo ou texto como funcionário, PIS ou salário). Vários CPFs no mesmo lugar indicam relação de empregados.
-  valor: ***.533.447-**
-proposta-sintetica.xlsx › Medicao › E2 › dado bancário › alto
-  Dado bancário identificado pelo rótulo «agência». Não há validação genérica de dígito: cada banco usa a sua.
-  valor: **34 (4 dígitos)
-proposta-sintetica.xlsx › Medicao › F2 › dado bancário › alto
-  Dado bancário identificado pelo rótulo «conta». Não há validação genérica de dígito: cada banco usa a sua.
-  valor: *****01 (7 dígitos)
-proposta-sintetica.xlsx › Proposta › C2 › fórmula oculta › alto
-  Célula visível cuja fórmula referencia aba, linha ou coluna oculta (Custos!B2). O número mostrado pode depender de custo ou margem que não aparece na impressão.
-  valor: Custos!B2*[n]
-proposta-sintetica.xlsx › — › — › macro › médio
-  A pasta contém macro (vbaProject.bin). O oculto-scan não executa e não descompila macro; só registra a presença.
-  valor: vbaProject.bin
-proposta-sintetica.xlsx › — › Company › metadado › médio
-  Metadado do arquivo. Autor, empresa e último editor identificam quem preparou a proposta e, entre licitantes, são indício de autoria compartilhada — não prova de conluio.
-  valor: Co********* Ex***** Lt**
-proposta-sintetica.xlsx › — › creator › metadado › médio
-  Metadado do arquivo. Autor, empresa e último editor identificam quem preparou a proposta e, entre licitantes, são indício de autoria compartilhada — não prova de conluio.
-  valor: Au**** Si*******
-proposta-sintetica.xlsx › — › lastModifiedBy › metadado › médio
-  Metadado do arquivo. Autor, empresa e último editor identificam quem preparou a proposta e, entre licitantes, são indício de autoria compartilhada — não prova de conluio.
-  valor: Re***** Si*******
-proposta-sintetica.xlsx › Medicao › C2 › PIS › médio
-  PIS/NIS/PASEP com dígito verificador válido e contexto de trabalhador. Pode fazer parte de folha ou medição com relação de empregados.
-  valor: ***.56437.**-*
-proposta-sintetica.xlsx › Medicao › D2 › dado bancário › médio
-  Dado bancário identificado pelo rótulo «banco». Não há validação genérica de dígito: cada banco usa a sua.
-  valor: **01 (3 dígitos)
-proposta-sintetica.xlsx › Proposta › B2 › comentário › médio
-  Há comentário em thread nesta célula. Comentário interno muitas vezes descreve margem, premissa ou ressalva que não está na célula visível.
-  valor: texto mascarado (43 caracteres)
-proposta-sintetica.xlsx › Proposta › C2 › comentário › médio
-  Há nota antiga nesta célula. Autor: Au**** Si*******. Comentário interno muitas vezes descreve margem, premissa ou ressalva que não está na célula visível.
-  valor: texto mascarado (37 caracteres)
-proposta-sintetica.xlsx › Proposta › E:E › coluna oculta › médio
-  Coluna ou faixa de colunas oculta. Em planilha de preço isso é um lugar típico de custo e BDI.
-proposta-sintetica.xlsx › — › title › metadado › info
-  Metadado descritivo do arquivo (título, assunto ou semelhante).
-  valor: Pr****** si*******
-proposta-sintetica.xlsx › Medicao › G2 › CNPJ › info
-  CNPJ válido (numérico ou alfanumérico). Informativo: em proposta, medição e documento fiscal o CNPJ costuma ser obrigatório. O formato alfanumérico segue a IN RFB nº 2.229/2024; confira a norma antes de confiar no achado.
-  valor: **.222.333/0001-**
-proposta-sintetica.xlsx › Medicao › H2 › CNPJ › info
-  CNPJ válido (numérico ou alfanumérico). Informativo: em proposta, medição e documento fiscal o CNPJ costuma ser obrigatório. O formato alfanumérico segue a IN RFB nº 2.229/2024; confira a norma antes de confiar no achado.
-  valor: **.ABC.345/01DE-**
-proposta-sintetica.xlsx › Proposta › C2 › constante › info
-  Fórmula com constante numérica. Pode revelar o método de margem ou BDI (por exemplo um fator multiplicando o custo). É informativo: constante sozinha não prova vazamento.
-  valor: Custos!B2*[n]
+proposta.xlsx
+  Proposta › C2 › fórmula oculta › alto
+    Célula visível cuja fórmula referencia aba, linha ou coluna oculta (Custos!B2). O número mostrado pode depender de custo ou margem que não aparece na impressão.
+    valor: Custos!B2*[n]
+  Custos › — › aba oculta › alto
+    Aba oculta. Em proposta, orçamento ou edital isso costuma esconder custo, margem ou memória de cálculo, e o destinatário revela a aba com um clique.
+  Proposta › C2 › comentário › médio
+    Há comentário em thread nesta célula. Comentário interno muitas vezes descreve margem, premissa ou ressalva que não está na célula visível.
+    valor: texto mascarado (14 caracteres)
+  Proposta › C2 › constante › info
+    Fórmula com constante numérica. Pode revelar o método de margem ou BDI (por exemplo um fator multiplicando o custo). É informativo: constante sozinha não prova vazamento.
+    valor: Custos!B2*[n]
 ---
-Resumo: 10 alto, 9 médio, 4 info (23 no total). 0 ignorado(s).
+Resumo: 2 alto, 1 médio, 1 info (4 no total). 0 ignorado(s).
 nenhum achado não significa arquivo limpo.
 ```
 
-O código de saída foi 1, porque o padrão de `--fail-on` é `alto`.
+No terminal, `alto` fica vermelho, `médio` amarelo e `info` ciano, e a linha do resumo sai em negrito. O código de saída é 1, porque o padrão de `--fail-on` é `alto`.
+
+O mesmo conteúdo em HTML (`oculto-scan proposta.xlsx --format html`) traz o quadro com as três contagens, uma tabela por arquivo e o aviso do rodapé. Dá para imprimir ou salvar em PDF pelo navegador.
 
 ## Ignorar um achado
 

@@ -17,12 +17,20 @@ from oculto_scan.refs import contiguous_groups, format_group, index_to_col
 from oculto_scan.secrets import find_high_entropy, find_secrets
 
 _GUID = re.compile(r"^\{?[0-9a-fA-F-]{32,}\}?$")
+# Excel stores the threaded-comment author as ``tc={GUID}`` on the legacy note.
+_TC_AUTHOR = re.compile(r"(?i)^tc\s*=")
+# Compatibility note Excel writes beside a threaded comment. The link id varies.
+_THREAD_PLACEHOLDER = re.compile(
+    r"\[Threaded comment\][\s\S]{0,80}?Your version of Excel allows you to read this threaded comment",
+    re.IGNORECASE,
+)
 
 _IDENTITY = {"creator", "lastmodifiedby", "company", "manager"}
 _CUSTOM_IDENTITY = ("empresa", "autor", "respons", "engenheir", "contato", "e-mail", "email")
 
 
 def analyze(workbook: Workbook, file_label: str, *, entropy: bool = False) -> list[Finding]:
+    _drop_legacy_thread_placeholders(workbook)
     findings: list[Finding] = []
     findings.extend(_structure(workbook, file_label))
     findings.extend(_formulas(workbook, file_label))
@@ -32,9 +40,44 @@ def analyze(workbook: Workbook, file_label: str, *, entropy: bool = False) -> li
 
 
 def _author_label(author: str | None) -> str:
-    if not author or _GUID.match(author.strip()):
+    if not author:
         return ""
-    return mask_text(author)
+    stripped = author.strip()
+    if _GUID.match(stripped) or _TC_AUTHOR.match(stripped):
+        return ""
+    return mask_text(stripped)
+
+
+def _cell_key(ref: str) -> str:
+    return ref.replace("$", "").casefold()
+
+
+def _is_thread_placeholder(text: str) -> bool:
+    return bool(_THREAD_PLACEHOLDER.search(text or ""))
+
+
+def _drop_legacy_thread_placeholders(workbook: Workbook) -> None:
+    """Drop Excel's legacy compatibility note when a real thread exists.
+
+    A threaded comment is stored twice: the thread itself, and a legacy note
+    whose author is ``tc={GUID}`` and whose text is the English placeholder
+    beginning with ``[Threaded comment]``. That pair is one finding. A legacy
+    note with its own text stays.
+    """
+    for sheet in workbook.sheets:
+        thread_cells = {_cell_key(item.ref) for item in sheet.comments if item.kind == "thread" and item.ref}
+        if not thread_cells:
+            continue
+        sheet.comments = [
+            item
+            for item in sheet.comments
+            if not (
+                item.kind == "nota"
+                and item.ref
+                and _cell_key(item.ref) in thread_cells
+                and _is_thread_placeholder(item.text)
+            )
+        ]
 
 
 def _dedupe(findings: list[Finding]) -> list[Finding]:
