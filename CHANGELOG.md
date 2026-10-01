@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6
+
+- O texto do terminal termina com **Próximos passos**: até quatro comandos com o caminho do arquivo, entre aspas, para copiar no PowerShell. Pode aparecer `--show`, HTML, JSON, `diff`, `--help` e, só em `.xlsm` sem o extra, o comando para instalar a leitura de macro.
+- O bloco não entra no JSON nem no HTML. Não aparece quando `CI` ou `GITHUB_ACTIONS` está definido. `--no-hints` desliga. Os códigos de saída não mudam.
+
 ## 0.1.5
 
 - Seção **Mapa da rede** no texto, no JSON e no HTML: usuário do Windows (`DOMINIO\usuario`), caminho UNC (`\\servidor\pasta`), site de SharePoint ou OneDrive, impressora e nome de máquina ou servidor. Os valores saem mascarados; `--show` revela no terminal e no HTML. O JSON continua mascarado. Um indício que já é achado (por exemplo um vínculo externo) aparece no mapa e não é repetido na lista.
