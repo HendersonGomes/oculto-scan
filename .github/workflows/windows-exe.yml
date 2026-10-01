@@ -26,7 +26,7 @@ jobs:
       - name: Version resource
         run: python packaging/write_version_info.py
       - name: Build
-        run: python -m PyInstaller --noconfirm --clean --noupx packaging/oculto-scan.spec
+        run: python -m PyInstaller --noconfirm --clean packaging/oculto-scan.spec
       - name: Smoke
         shell: pwsh
         run: |
