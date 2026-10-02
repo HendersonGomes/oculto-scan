@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import math
 import os
+import queue
 import subprocess
 import sys
 import tempfile
+import threading
 import tkinter as tk
 import tkinter.font as tkfont
 from pathlib import Path
@@ -37,13 +39,14 @@ from oculto_scan.gui_logic import (
     CLEAN_FORCE,
     CLEAN_HIDDEN,
     CLEAN_MACROS,
+    RESIZE_DEBOUNCE_MS,
+    ResizeCoalescer,
     Session,
     clean_button_enabled,
-    compare_files,
     finish_clean_session,
     result_html,
     risk_grade,
-    scan_file,
+    run_scan_job,
     suggested_html_name,
     window_cards,
 )
@@ -66,7 +69,7 @@ from oculto_scan.gui_theme import (
 )
 from oculto_scan.report import write_private_text
 
-_BUSY = "Analisando a planilha neste computador."
+_BUSY = "Analisando..."
 _OFFLINE = "Nada é enviado para a internet. O arquivo fica neste computador."
 _SHOW = "Mostrar os valores reais (não envie o relatório a outras pessoas)"
 _EMPTY_FILE = "Nenhum arquivo escolhido"
@@ -84,7 +87,7 @@ _WORD = {
     "medio": "Médio",
     "alto": "Alto",
     "erro": "Erro",
-    "analisando": "Aguarde",
+    "analisando": "Analisando...",
 }
 _WORD_COLOR = {
     "limpo": OK,
@@ -140,6 +143,12 @@ class App:
         self.session = Session()
         self.saved: Path | None = None
         self._busy = False
+        self._results: queue.Queue = queue.Queue()
+        self._pick_buttons: list[ttk.Button] = []
+        self._wrap_labels: list[tk.Label] = []
+        self._layout_width = -1
+        self._cards_dirty = True
+        self._scroll_on = False
         self._meter = ("", "Escolha um arquivo", "")
         root.title(f"oculto-scan {__version__}")
         root.configure(bg=GAUGE_BG)
@@ -317,7 +326,6 @@ class App:
         top.pack(fill="x", padx=12, pady=(4, 0))
         self._gauge = tk.Canvas(top, width=500, height=280, bg=GAUGE_BG, highlightthickness=0)
         self._gauge.pack(side="left", anchor="n")
-        self._gauge.bind("<Configure>", lambda _event: self._draw_meter())
 
         side = tk.Frame(top, bg=GAUGE_BG)
         side.pack(side="left", fill="both", expand=True, padx=(8, 12), pady=(18, 0))
@@ -342,16 +350,20 @@ class App:
 
         modes = tk.Frame(side, bg=GAUGE_BG)
         modes.pack(anchor="w", pady=(0, 8))
-        ttk.Radiobutton(modes, text="Um arquivo", value="scan", variable=self._mode, command=self._apply_mode).pack(
-            side="left"
+        self._radios: list[ttk.Radiobutton] = []
+        scan_mode = ttk.Radiobutton(
+            modes, text="Um arquivo", value="scan", variable=self._mode, command=self._apply_mode
         )
-        ttk.Radiobutton(
+        scan_mode.pack(side="left")
+        diff_mode = ttk.Radiobutton(
             modes,
             text="Comparar dois arquivos",
             value="diff",
             variable=self._mode,
             command=self._apply_mode,
-        ).pack(side="left", padx=16)
+        )
+        diff_mode.pack(side="left", padx=16)
+        self._radios.extend((scan_mode, diff_mode))
 
         self._files = tk.Frame(side, bg=GAUGE_BG)
         self._files.pack(fill="x")
@@ -362,8 +374,10 @@ class App:
         actions.pack(fill="x", pady=(10, 0))
         self._go = ttk.Button(actions, text="Escanear", style="Accent.TButton", command=self._run)
         self._go.pack(side="left")
-        ttk.Button(actions, text="Salvar relatório HTML", command=self._save).pack(side="left", padx=8)
-        ttk.Button(actions, text="Abrir relatório HTML", command=self._open).pack(side="left")
+        self._save_btn = ttk.Button(actions, text="Salvar relatório HTML", command=self._save)
+        self._save_btn.pack(side="left", padx=8)
+        self._open_btn = ttk.Button(actions, text="Abrir relatório HTML", command=self._open)
+        self._open_btn.pack(side="left")
 
         ttk.Checkbutton(side, text=_SHOW, variable=self._show, command=self._refresh).pack(anchor="w", pady=(10, 0))
         clean_row = tk.Frame(side, bg=GAUGE_BG)
@@ -392,8 +406,20 @@ class App:
         self._cards_canvas.pack(side="left", fill="both", expand=True)
         self._card_frame = tk.Frame(self._cards_canvas, bg=GAUGE_BG)
         self._cards_window = self._cards_canvas.create_window((0, 0), window=self._card_frame, anchor="nw")
-        self._card_frame.bind("<Configure>", self._on_cards_configure)
-        self._cards_canvas.bind("<Configure>", self._on_cards_configure)
+        self._resize = ResizeCoalescer(
+            self.root.after,
+            self.root.after_cancel,
+            self._layout_cards,
+            delay_ms=RESIZE_DEBOUNCE_MS,
+        )
+        self._meter_resize = ResizeCoalescer(
+            self.root.after,
+            self.root.after_cancel,
+            lambda _width: self._draw_meter(),
+            delay_ms=RESIZE_DEBOUNCE_MS,
+        )
+        self.root.bind("<Configure>", self._on_root_configure)
+        self._cards_canvas.bind("<Configure>", self._on_canvas_configure)
         self._cards_canvas.bind("<Enter>", lambda _event: self._bind_wheel())
         self._cards_canvas.bind("<Leave>", lambda _event: self._unbind_wheel())
 
@@ -415,21 +441,43 @@ class App:
         else:
             self._cards_canvas.yview_scroll(int(-event.delta / 120), "units")
 
-    def _on_cards_configure(self, _event: tk.Event | None = None) -> None:
-        width = self._cards_canvas.winfo_width()
-        if width > 1:
-            self._cards_canvas.itemconfigure(self._cards_window, width=width)
-        self._cards_canvas.configure(scrollregion=self._cards_canvas.bbox("all"))
+    def _on_root_configure(self, event: tk.Event) -> None:
+        if event.widget is not self.root:
+            return
+        self._meter_resize.push(int(event.width))
+
+    def _on_canvas_configure(self, event: tk.Event) -> None:
+        if event.widget is not self._cards_canvas:
+            return
+        self._resize.push(int(event.width))
+
+    def _layout_cards(self, width: int) -> None:
+        """Fit the cards to the canvas. Does not rebuild them and does not ask for another resize."""
+        if width < 2:
+            return
+        if width == self._layout_width and not self._cards_dirty:
+            return
+        self._cards_dirty = False
+        self._layout_width = width
+        self._cards_canvas.itemconfigure(self._cards_window, width=width)
+        wrap = max(width - 48, 240)
+        for label in self._wrap_labels:
+            if label.winfo_exists():
+                label.configure(wraplength=wrap)
+        bbox = self._cards_canvas.bbox("all")
+        self._cards_canvas.configure(scrollregion=bbox if bbox else (0, 0, 1, 1))
         self._toggle_scrollbar()
 
     def _toggle_scrollbar(self) -> None:
         bbox = self._cards_canvas.bbox("all")
         height = self._cards_canvas.winfo_height()
         needed = bool(bbox and height > 1 and bbox[3] > height + 4)
-        mapped = bool(self._scroll.winfo_ismapped())
-        if needed and not mapped:
+        if needed == self._scroll_on:
+            return
+        self._scroll_on = needed
+        if needed:
             self._scroll.pack(side="right", fill="y")
-        elif mapped and not needed:
+        else:
             self._scroll.pack_forget()
 
     def _bar(self, parent: tk.Misc, caption: str, variable: tk.StringVar) -> tuple[tk.Frame, tk.Label]:
@@ -441,9 +489,9 @@ class App:
         name.pack(anchor="w")
         hint = tk.Label(text, text=_FILE_HINT, bg=GAUGE_CARD, fg=GAUGE_MUTED, font=(self._ui, 11), anchor="w")
         hint.pack(anchor="w")
-        ttk.Button(zone, text="Escolher...", style="Accent.TButton", command=lambda: self._pick(variable)).pack(
-            side="right", padx=10, pady=10
-        )
+        choose = ttk.Button(zone, text="Escolher...", style="Accent.TButton", command=lambda: self._pick(variable))
+        choose.pack(side="right", padx=10, pady=10)
+        self._pick_buttons.append(choose)
         variable.trace_add("write", lambda *_args: self._paint_name(name, hint, variable))
         return zone, name
 
@@ -480,34 +528,69 @@ class App:
     def _run(self) -> None:
         if self._busy:
             return
+        mode = self._mode.get()
+        left = self._left.get()
+        right = self._right.get()
+        self._begin_busy(_BUSY)
+        threading.Thread(target=self._worker_run, args=(mode, left, right), daemon=True).start()
+
+    def _worker_run(self, mode: str, left: str, right: str) -> None:
+        try:
+            session = run_scan_job(mode, left, right)
+        except Exception:
+            session = Session(error="Não foi possível concluir a análise.")
+        self._results.put(("run", session))
+
+    def _begin_busy(self, status: str) -> None:
         self._busy = True
         self.saved = None
-        self._go.state(["disabled"])
-        self._status.set(_BUSY)
-        self._meter = ("analisando", "Aguarde", "")
+        self._set_actions_enabled(False)
+        self._status.set(status)
+        self._meter = ("analisando", "Analisando...", "")
         self._draw_meter()
-        self._show_note(_BUSY)
+        self._show_note(status)
         self._progress.pack(fill="x", pady=(6, 0))
         self._progress.start(12)
-        self.root.update_idletasks()
-        self.root.after(40, self._finish_run)
+        self.root.after(30, self._poll_results)
 
-    def _finish_run(self) -> None:
+    def _set_actions_enabled(self, enabled: bool) -> None:
+        state = ["!disabled"] if enabled else ["disabled"]
+        for widget in (self._go, self._save_btn, self._open_btn, self._clean_btn, *self._pick_buttons, *self._radios):
+            widget.state(state)
+
+    def _poll_results(self) -> None:
         try:
-            if self._mode.get() == "diff":
-                self.session = compare_files(Path(self._left.get()), Path(self._right.get()))
-            else:
-                self.session = scan_file(Path(self._left.get()))
-        except OSError as exc:
-            self.session = Session(error=f"Não foi possível ler o arquivo ({exc}).")
-        finally:
-            self._progress.stop()
-            self._progress.pack_forget()
-            self._busy = False
-            self._go.state(["!disabled"])
+            if not self.root.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        try:
+            kind, payload = self._results.get_nowait()
+        except queue.Empty:
+            if self._busy:
+                try:
+                    self.root.after(30, self._poll_results)
+                except tk.TclError:
+                    return
+            return
+        self._progress.stop()
+        self._progress.pack_forget()
+        self._busy = False
+        self._set_actions_enabled(True)
+        if kind == "run":
+            self.session = payload
             self._apply_mode()
             self._status.set(_OFFLINE)
-            self._refresh()
+        elif kind == "clean-ok":
+            dest, session, note = payload
+            self._left.set(str(dest))
+            self.session = session
+            self._title.set("Risco da cópia limpa")
+            self._status.set(note or _OFFLINE)
+        else:
+            self._notice(str(payload))
+            self._status.set(_OFFLINE)
+        self._refresh()
 
     def _draw_meter(self) -> None:
         grade, detail = self._meter[0], self._meter[2]
@@ -543,7 +626,7 @@ class App:
             )
             canvas.create_oval(cx - 7, cy - 7, cx + 7, cy + 7, fill=GAUGE_CREAM, outline=GAUGE_CREAM)
         color = _WORD_COLOR.get(grade, GAUGE_MUTED)
-        size = 16 if grade == "" else 32
+        size = 18 if grade in {"", "analisando"} else 32
         canvas.create_text(cx, cy - 58, text=word, fill=color, font=(self._ui, size, "bold"))
         if detail:
             canvas.create_text(cx, cy + 28, text=detail, fill=GAUGE_MUTED, font=(self._ui, 12))
@@ -571,29 +654,41 @@ class App:
             self._show_note(_CLEAN)
         else:
             self._show_note(_INVITE)
-        self.root.update_idletasks()
-        self._on_cards_configure()
+        self._cards_dirty = True
+        width = self._cards_canvas.winfo_width()
+        if width > 1:
+            self._layout_cards(width)
 
     def _clear_cards(self) -> None:
+        self._wrap_labels.clear()
         for child in self._card_frame.winfo_children():
             child.destroy()
 
+    def _remember_wrap(self, label: tk.Label) -> tk.Label:
+        self._wrap_labels.append(label)
+        return label
+
     def _show_note(self, text: str) -> None:
         self._clear_cards()
-        tk.Label(
-            self._card_frame,
-            text=text,
-            bg=GAUGE_BG,
-            fg=GAUGE_MUTED,
-            font=(self._ui, 13),
-            anchor="w",
-            justify="left",
-            wraplength=760,
-        ).pack(anchor="w", padx=8, pady=8)
+        self._cards_dirty = True
+        label = self._remember_wrap(
+            tk.Label(
+                self._card_frame,
+                text=text,
+                bg=GAUGE_BG,
+                fg=GAUGE_MUTED,
+                font=(self._ui, 13),
+                anchor="w",
+                justify="left",
+                wraplength=760,
+            )
+        )
+        label.pack(anchor="w", padx=8, pady=8)
 
     def _show_cards(self, cards) -> None:
         self._clear_cards()
-        width = max(self._cards_canvas.winfo_width() - 36, 640)
+        self._cards_dirty = True
+        width = max(self._cards_canvas.winfo_width() - 48, 240)
         for card in cards:
             color = _CARD_COLOR.get(card.severity, GAUGE_INFO)
             block = tk.Frame(self._card_frame, bg=GAUGE_CARD, highlightthickness=1, highlightbackground=GAUGE_LINE)
@@ -608,15 +703,17 @@ class App:
                 font=(self._ui, 11, "bold"),
                 anchor="w",
             ).pack(anchor="w")
-            tk.Label(
-                inner,
-                text=card.title,
-                bg=GAUGE_CARD,
-                fg=GAUGE_CREAM,
-                font=(self._ui, 16, "bold"),
-                anchor="w",
-                justify="left",
-                wraplength=width,
+            self._remember_wrap(
+                tk.Label(
+                    inner,
+                    text=card.title,
+                    bg=GAUGE_CARD,
+                    fg=GAUGE_CREAM,
+                    font=(self._ui, 16, "bold"),
+                    anchor="w",
+                    justify="left",
+                    wraplength=width,
+                )
             ).pack(anchor="w", pady=(2, 0))
             tk.Label(
                 inner,
@@ -626,57 +723,49 @@ class App:
                 font=(self._ui, 12),
                 anchor="w",
             ).pack(anchor="w")
-            tk.Label(
-                inner,
-                text=card.action,
-                bg=GAUGE_CARD,
-                fg=GAUGE_CREAM,
-                font=(self._ui, 12),
-                anchor="w",
-                justify="left",
-                wraplength=width,
+            self._remember_wrap(
+                tk.Label(
+                    inner,
+                    text=card.action,
+                    bg=GAUGE_CARD,
+                    fg=GAUGE_CREAM,
+                    font=(self._ui, 12),
+                    anchor="w",
+                    justify="left",
+                    wraplength=width,
+                )
             ).pack(anchor="w", pady=(6, 0))
             block.pack(fill="x", pady=5)
 
     def _clean_copy(self) -> None:
         if self._busy or not clean_button_enabled(self.session, mode=self._mode.get(), busy=False):
             return
-        self._busy = True
-        self.saved = None
-        self._clean_btn.state(["disabled"])
-        self._go.state(["disabled"])
-        self._status.set(_CLEAN_BUSY)
-        self._meter = ("analisando", "Aguarde", "")
-        self._draw_meter()
-        self._show_note(_CLEAN_BUSY)
-        self._progress.pack(fill="x", pady=(6, 0))
-        self._progress.start(12)
-        self.root.update_idletasks()
-        self.root.after(40, self._finish_clean)
+        source = self._left.get()
+        hidden = bool(self._clean_hidden.get())
+        macros = bool(self._clean_macros.get())
+        force = bool(self._clean_force.get())
+        self._begin_busy(_CLEAN_BUSY)
+        threading.Thread(
+            target=self._worker_clean,
+            args=(source, hidden, macros, force),
+            daemon=True,
+        ).start()
 
-    def _finish_clean(self) -> None:
-        note = ""
+    def _worker_clean(self, source: str, hidden: bool, macros: bool, force: bool) -> None:
         try:
-            _dest, session, note = finish_clean_session(
-                Path(self._left.get()),
-                remove_hidden=bool(self._clean_hidden.get()),
-                remove_macros=bool(self._clean_macros.get()),
-                force=bool(self._clean_force.get()),
+            dest, session, note = finish_clean_session(
+                Path(source),
+                remove_hidden=hidden,
+                remove_macros=macros,
+                force=force,
             )
-            self._left.set(str(_dest))
-            self.session = session
-            self._title.set("Risco da cópia limpa")
+            self._results.put(("clean-ok", (dest, session, note)))
         except CleanError as exc:
-            self._notice(str(exc))
+            self._results.put(("clean-err", str(exc)))
         except OSError as exc:
-            self._notice(f"Não foi possível gravar a cópia ({exc}).")
-        finally:
-            self._progress.stop()
-            self._progress.pack_forget()
-            self._busy = False
-            self._go.state(["!disabled"])
-            self._status.set(note or _OFFLINE)
-            self._refresh()
+            self._results.put(("clean-err", f"Não foi possível gravar a cópia ({exc})."))
+        except Exception:
+            self._results.put(("clean-err", "Não foi possível gravar a cópia."))
 
     def _html(self) -> str:
         if not self.session.ready:

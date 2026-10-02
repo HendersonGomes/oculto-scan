@@ -2,6 +2,7 @@ import json
 import sys
 from datetime import datetime, timedelta, timezone
 
+from oculto_scan import __version__
 from oculto_scan.cli import main
 from oculto_scan.models import Finding
 from oculto_scan.report import DISCLAIMER, enable_windows_vt, render_html, render_json, render_text
@@ -39,7 +40,7 @@ def test_html_document_escapes_spreadsheet_text_and_hides_raw_values():
     assert "<!DOCTYPE html>" in page
     assert "@media print" in page
     assert "oculto-scan" in page
-    assert "0.2.0" in page
+    assert __version__ in page
     assert DISCLAIMER in page
     assert 'class="resumo"' in page
     assert ">1</strong><span>médio</span>" in page
@@ -117,7 +118,7 @@ def test_json_shape_is_unchanged():
         "message",
         "value",
     }
-    assert payload["version"] == "0.2.0"
+    assert payload["version"] == __version__
     assert payload["mapa_da_rede"] == []
     assert "SEGREDO-CRU" not in raw
     assert "\033[" not in raw

@@ -3,6 +3,7 @@
 import json
 import sys
 
+from oculto_scan import __version__
 from oculto_scan.cli import main
 from oculto_scan.diff import IDENTICAL, LIMITS, METADATA_ONLY, REVEALED_BANNER
 from tests.workbook_factory import build_workbook
@@ -384,7 +385,7 @@ def test_json_stays_masked_and_missing_path_exits_2(tmp_path, capsys):
     payload = json.loads(raw)
     assert code == 1
     assert payload["command"] == "diff"
-    assert payload["version"] == "0.2.0"
+    assert payload["version"] == __version__
     assert "Outra Construtora" not in raw
     assert LIMITS in payload["limits"]
     missing = tmp_path / "nao-existe.xlsx"

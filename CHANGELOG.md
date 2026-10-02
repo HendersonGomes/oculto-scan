@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- A janela deixa de travar ao maximizar durante a comparação de duas planilhas. A análise roda fora da thread da janela. Redimensionar espera um instante e só ajusta a largura do texto, sem recriar os cartões. Enquanto analisa, a janela mostra «Analisando...» e os botões ficam desligados.
+
 ## Documentação
 
 - A página principal do README ficou curta. O passo a passo, o uso completo, as limitações, a segurança da ferramenta, o roteiro e a política de assinatura de código estão em `docs/`. A versão do programa não mudou.
