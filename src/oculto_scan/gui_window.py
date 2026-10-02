@@ -1,10 +1,12 @@
 """Tk window. Widgets only: the scan itself lives in gui_logic.
 
-The report text is still ``result_text``. This module only changes layout and color.
+The in-window report is a gauge plus short cards. The long text stays in
+``result_html`` (and in ``result_text`` for the terminal).
 """
 
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 import sys
@@ -30,49 +32,62 @@ from oculto_scan.gui_help import (
     update_help_text,
 )
 from oculto_scan.gui_logic import (
-    ACHADOS,
-    ERRO,
-    LIMPO,
     Session,
-    card_counts,
     compare_files,
     result_html,
-    result_text,
+    risk_grade,
     scan_file,
     suggested_html_name,
-    summary_line,
-    type_counts,
-    view_state,
+    window_cards,
 )
 from oculto_scan.gui_theme import (
-    ALTO,
     AMBER,
     AMBER_HOT,
-    CARD,
-    CARD_RAISED,
-    CREAM,
-    ERROR_BG,
-    INFO,
-    INK,
-    LINE,
-    MEDIO,
-    MONO_FONTS,
-    MUTED,
-    NAVY,
-    NAVY_DEEP,
+    GAUGE_ALTO,
+    GAUGE_ALTO_TEXT,
+    GAUGE_BG,
+    GAUGE_CARD,
+    GAUGE_CREAM,
+    GAUGE_INFO,
+    GAUGE_INK,
+    GAUGE_LINE,
+    GAUGE_MEDIO,
+    GAUGE_MUTED,
+    GAUGE_TRACK,
     OK,
-    OK_BG,
-    PANEL,
     UI_FONTS,
 )
 from oculto_scan.report import write_private_text
 
-_PLACEHOLDER = "O relatório aparece aqui, com os mesmos textos de sempre."
 _BUSY = "Analisando a planilha neste computador."
 _OFFLINE = "Nada é enviado para a internet. O arquivo fica neste computador."
 _SHOW = "Mostrar os valores reais (não envie o relatório a outras pessoas)"
 _EMPTY_FILE = "Nenhum arquivo escolhido"
-_FILE_HINT = ".xlsx ou .xlsm · o arquivo fica neste computador"
+_FILE_HINT = "Escolha um .xlsx ou .xlsm"
+_FILE_READY = "Escolha outro arquivo quando quiser"
+_LEAD = "A nota segue o pior achado e a quantidade. Não é uma porcentagem."
+_INVITE = "Escolha um arquivo para ver os achados aqui, em linguagem simples."
+_CLEAN = "Nenhum achado. O texto completo continua no relatório HTML."
+
+_WORD = {
+    "limpo": "Limpo",
+    "baixo": "Baixo",
+    "medio": "Médio",
+    "alto": "Alto",
+    "erro": "Erro",
+    "analisando": "Aguarde",
+}
+_WORD_COLOR = {
+    "limpo": OK,
+    "baixo": GAUGE_INFO,
+    "medio": GAUGE_MEDIO,
+    "alto": GAUGE_ALTO_TEXT,
+    "erro": GAUGE_ALTO_TEXT,
+    "analisando": GAUGE_MUTED,
+    "": GAUGE_MUTED,
+}
+_NEEDLE = {"limpo": 168, "baixo": 150, "medio": 90, "alto": 22}
+_CARD_COLOR = {"alto": GAUGE_ALTO, "medio": GAUGE_MEDIO, "info": GAUGE_INFO}
 
 
 def _first_font(root: tk.Misc, names: tuple[str, ...]) -> str:
@@ -116,19 +131,20 @@ class App:
         self.session = Session()
         self.saved: Path | None = None
         self._busy = False
+        self._meter = ("", "Escolha um arquivo", "")
         root.title(f"oculto-scan {__version__}")
-        root.configure(bg=NAVY)
-        root.minsize(880, 640)
-        root.geometry("1080x780")
+        root.configure(bg=GAUGE_BG)
+        root.minsize(960, 680)
+        root.geometry("1180x820")
         self._ui = _first_font(root, UI_FONTS)
-        self._mono = _first_font(root, MONO_FONTS)
         self._icon_image = apply_window_icon(root)
-        self._header_icon = self._scaled_icon()
+        self._mark = self._scaled_icon()
         self._mode = tk.StringVar(value="scan")
         self._left = tk.StringVar()
         self._right = tk.StringVar()
         self._show = tk.BooleanVar(value=False)
         self._status = tk.StringVar(value=_OFFLINE)
+        self._title = tk.StringVar(value="Risco da planilha")
         self._apply_theme()
         self._build_menu()
         self._build()
@@ -143,7 +159,7 @@ class App:
             image = tk.PhotoImage(file=str(png))
         except tk.TclError:
             return None
-        factor = max(1, image.width() // 56)
+        factor = max(1, image.width() // 36)
         if factor > 1:
             image = image.subsample(factor, factor)
         return image
@@ -153,62 +169,69 @@ class App:
         if "clam" in style.theme_names():
             style.theme_use("clam")
         ui = (self._ui, 12)
-        style.configure(".", background=NAVY, foreground=CREAM, font=ui)
-        style.configure("TButton", background=CARD, foreground=CREAM, bordercolor=LINE, padding=(14, 8), font=ui)
+        style.configure(".", background=GAUGE_BG, foreground=GAUGE_CREAM, font=ui)
+        style.configure(
+            "TButton",
+            background=GAUGE_CARD,
+            foreground=GAUGE_CREAM,
+            bordercolor=GAUGE_LINE,
+            padding=(14, 8),
+            font=ui,
+        )
         style.map(
             "TButton",
-            background=[("active", CARD_RAISED), ("pressed", CARD_RAISED), ("disabled", PANEL)],
-            foreground=[("disabled", MUTED)],
+            background=[("active", GAUGE_TRACK), ("pressed", GAUGE_TRACK), ("disabled", GAUGE_BG)],
+            foreground=[("disabled", GAUGE_MUTED)],
         )
         style.configure(
             "Accent.TButton",
             background=AMBER,
-            foreground=INK,
+            foreground=GAUGE_INK,
             bordercolor=AMBER,
-            padding=(18, 10),
-            font=(self._ui, 13, "bold"),
+            padding=(16, 10),
+            font=(self._ui, 12, "bold"),
         )
         style.map(
             "Accent.TButton",
-            background=[("active", AMBER_HOT), ("pressed", AMBER_HOT), ("disabled", PANEL)],
-            foreground=[("disabled", MUTED), ("!disabled", INK)],
+            background=[("active", AMBER_HOT), ("pressed", AMBER_HOT), ("disabled", GAUGE_TRACK)],
+            foreground=[("disabled", GAUGE_MUTED), ("!disabled", GAUGE_INK)],
         )
-        style.configure("TRadiobutton", background=NAVY, foreground=CREAM, font=ui)
+        style.configure("TRadiobutton", background=GAUGE_BG, foreground=GAUGE_CREAM, font=ui)
         style.map(
             "TRadiobutton",
-            background=[("active", NAVY), ("selected", NAVY)],
+            background=[("active", GAUGE_BG), ("selected", GAUGE_BG)],
             foreground=[("selected", AMBER_HOT)],
-            indicatorcolor=[("selected", AMBER), ("!selected", CARD)],
+            indicatorcolor=[("selected", AMBER), ("!selected", GAUGE_CARD)],
         )
-        style.configure("TCheckbutton", background=NAVY, foreground=CREAM, font=ui)
+        style.configure("TCheckbutton", background=GAUGE_BG, foreground=GAUGE_CREAM, font=ui)
         style.map(
             "TCheckbutton",
-            background=[("active", NAVY)],
-            indicatorcolor=[("selected", AMBER), ("!selected", CARD)],
+            background=[("active", GAUGE_BG)],
+            indicatorcolor=[("selected", AMBER), ("!selected", GAUGE_CARD)],
         )
         style.configure(
             "Amber.Horizontal.TProgressbar",
-            troughcolor=PANEL,
+            troughcolor=GAUGE_TRACK,
             background=AMBER,
-            bordercolor=PANEL,
+            bordercolor=GAUGE_TRACK,
             lightcolor=AMBER,
             darkcolor=AMBER,
         )
         style.configure(
             "Vertical.TScrollbar",
-            background=PANEL,
-            troughcolor=NAVY,
-            bordercolor=NAVY,
-            arrowcolor=CREAM,
+            background=GAUGE_LINE,
+            troughcolor=GAUGE_BG,
+            bordercolor=GAUGE_BG,
+            arrowcolor=GAUGE_CREAM,
         )
 
     def _build_menu(self) -> None:
         menu = tk.Menu(
             self.root,
-            bg=PANEL,
-            fg=CREAM,
+            bg=GAUGE_CARD,
+            fg=GAUGE_CREAM,
             activebackground=AMBER,
-            activeforeground=INK,
+            activeforeground=GAUGE_INK,
             font=(self._ui, 12),
             bd=0,
             relief="flat",
@@ -216,10 +239,10 @@ class App:
         help_menu = tk.Menu(
             menu,
             tearoff=0,
-            bg=PANEL,
-            fg=CREAM,
+            bg=GAUGE_CARD,
+            fg=GAUGE_CREAM,
             activebackground=AMBER,
-            activeforeground=INK,
+            activeforeground=GAUGE_INK,
             font=(self._ui, 12),
         )
         help_menu.add_command(label=MENU_UPDATE, command=self._show_update_help)
@@ -242,14 +265,14 @@ class App:
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
         dialog.transient(self.root)
-        dialog.configure(bg=NAVY)
+        dialog.configure(bg=GAUGE_BG)
         dialog.minsize(460, 220)
         dialog.geometry("560x420")
         text = tk.Text(
             dialog,
             wrap="word",
-            bg=CARD,
-            fg=CREAM,
+            bg=GAUGE_CARD,
+            fg=GAUGE_CREAM,
             font=(self._ui, 12),
             relief="flat",
             padx=14,
@@ -259,60 +282,54 @@ class App:
         text.insert("1.0", body)
         text.configure(state="disabled")
         text.pack(fill="both", expand=True, padx=16, pady=(16, 8))
-        buttons = tk.Frame(dialog, bg=NAVY)
+        buttons = tk.Frame(dialog, bg=GAUGE_BG)
         buttons.pack(padx=16, pady=(0, 16))
         if mail:
             ttk.Button(buttons, text="Escrever e-mail", command=open_contact_mail).pack(side="left")
         ttk.Button(buttons, text="Fechar", command=dialog.destroy).pack(side="left", padx=(8, 0))
 
     def _build(self) -> None:
-        header = tk.Frame(self.root, bg=NAVY_DEEP)
-        header.pack(fill="x")
-        if self._header_icon is not None:
-            tk.Label(header, image=self._header_icon, bg=NAVY_DEEP).pack(side="left", padx=(18, 10), pady=14)
-        titles = tk.Frame(header, bg=NAVY_DEEP)
-        titles.pack(side="left", fill="x", expand=True, pady=14)
-        tk.Label(
-            titles,
-            text="oculto-scan",
-            bg=NAVY_DEEP,
-            fg=CREAM,
-            font=(self._ui, 22, "bold"),
-            anchor="w",
-        ).pack(anchor="w")
-        tk.Label(
-            titles,
-            text=f"versão {__version__}",
-            bg=NAVY_DEEP,
-            fg=MUTED,
-            font=(self._ui, 12),
-            anchor="w",
-        ).pack(anchor="w")
-        badge = tk.Label(
-            header,
-            text="  100% offline  ",
-            bg=NAVY,
-            fg=AMBER_HOT,
-            font=(self._ui, 12, "bold"),
-            highlightthickness=1,
-            highlightbackground=AMBER,
+        brand = tk.Frame(self.root, bg=GAUGE_BG)
+        brand.pack(fill="x", padx=20, pady=(10, 0))
+        if self._mark is not None:
+            tk.Label(brand, image=self._mark, bg=GAUGE_BG).pack(side="left", padx=(0, 8))
+        tk.Label(brand, text="oculto-scan", bg=GAUGE_BG, fg=GAUGE_CREAM, font=(self._ui, 16, "bold")).pack(
+            side="left"
         )
-        badge.pack(side="right", padx=18, pady=18)
-        tk.Frame(self.root, bg=AMBER, height=2).pack(fill="x")
+        tk.Label(brand, text=f"  {__version__}", bg=GAUGE_BG, fg=GAUGE_MUTED, font=(self._ui, 12)).pack(side="left")
+        tk.Label(brand, text="100% offline", bg=GAUGE_BG, fg=AMBER_HOT, font=(self._ui, 12, "bold")).pack(
+            side="right"
+        )
 
-        body = tk.Frame(self.root, bg=NAVY)
-        body.pack(fill="both", expand=True)
+        top = tk.Frame(self.root, bg=GAUGE_BG)
+        top.pack(fill="x", padx=12, pady=(4, 0))
+        self._gauge = tk.Canvas(top, width=500, height=280, bg=GAUGE_BG, highlightthickness=0)
+        self._gauge.pack(side="left", anchor="n")
+        self._gauge.bind("<Configure>", lambda _event: self._draw_meter())
+
+        side = tk.Frame(top, bg=GAUGE_BG)
+        side.pack(side="left", fill="both", expand=True, padx=(8, 12), pady=(18, 0))
         tk.Label(
-            body,
-            text="Verifica se a planilha pode vazar dados antes de você enviar.",
-            bg=NAVY,
-            fg=MUTED,
-            font=(self._ui, 12),
+            side,
+            textvariable=self._title,
+            bg=GAUGE_BG,
+            fg=GAUGE_CREAM,
+            font=(self._ui, 26, "bold"),
             anchor="w",
-        ).pack(fill="x", padx=20, pady=(12, 4))
+        ).pack(anchor="w")
+        tk.Label(
+            side,
+            text=_LEAD,
+            bg=GAUGE_BG,
+            fg=GAUGE_MUTED,
+            font=(self._ui, 13),
+            anchor="w",
+            justify="left",
+            wraplength=520,
+        ).pack(anchor="w", pady=(4, 10))
 
-        modes = tk.Frame(body, bg=NAVY)
-        modes.pack(fill="x", padx=20, pady=4)
+        modes = tk.Frame(side, bg=GAUGE_BG)
+        modes.pack(anchor="w", pady=(0, 8))
         ttk.Radiobutton(modes, text="Um arquivo", value="scan", variable=self._mode, command=self._apply_mode).pack(
             side="left"
         )
@@ -324,104 +341,95 @@ class App:
             command=self._apply_mode,
         ).pack(side="left", padx=16)
 
-        self._files = tk.Frame(body, bg=NAVY)
-        self._files.pack(fill="x", padx=20, pady=6)
-        self._files.grid_columnconfigure(0, weight=1)
-        self._files.grid_columnconfigure(1, weight=1)
-        self._left_zone, self._left_name = self._zone(self._files, "Arquivo", self._left)
-        self._right_zone, self._right_name = self._zone(self._files, "Outro arquivo", self._right)
+        self._files = tk.Frame(side, bg=GAUGE_BG)
+        self._files.pack(fill="x")
+        self._left_zone, self._left_name = self._bar(self._files, "Arquivo", self._left)
+        self._right_zone, self._right_name = self._bar(self._files, "Outro arquivo", self._right)
 
-        ttk.Checkbutton(body, text=_SHOW, variable=self._show, command=self._refresh).pack(anchor="w", padx=20, pady=8)
-
-        actions = tk.Frame(body, bg=NAVY)
-        actions.pack(fill="x", padx=20, pady=4)
+        actions = tk.Frame(side, bg=GAUGE_BG)
+        actions.pack(fill="x", pady=(10, 0))
         self._go = ttk.Button(actions, text="Escanear", style="Accent.TButton", command=self._run)
         self._go.pack(side="left")
         ttk.Button(actions, text="Salvar relatório HTML", command=self._save).pack(side="left", padx=8)
         ttk.Button(actions, text="Abrir relatório HTML", command=self._open).pack(side="left")
 
-        tk.Label(body, textvariable=self._status, bg=NAVY, fg=MUTED, font=(self._ui, 11), anchor="w").pack(
-            fill="x", padx=20, pady=(6, 2)
+        ttk.Checkbutton(side, text=_SHOW, variable=self._show, command=self._refresh).pack(anchor="w", pady=(10, 0))
+        tk.Label(side, textvariable=self._status, bg=GAUGE_BG, fg=GAUGE_MUTED, font=(self._ui, 11), anchor="w").pack(
+            anchor="w", pady=(6, 0)
         )
+        self._progress = ttk.Progressbar(side, mode="indeterminate", style="Amber.Horizontal.TProgressbar")
 
-        self._results = tk.Frame(body, bg=NAVY)
-        self._results.pack(fill="x")
-        self._banner = tk.Frame(self._results, bg=PANEL)
-        self._banner_accent = tk.Frame(self._banner, bg=AMBER, width=4)
-        self._banner_accent.pack(side="left", fill="y")
-        self._banner_text = tk.Label(
-            self._banner,
-            text="",
-            bg=PANEL,
-            fg=CREAM,
-            font=(self._ui, 13, "bold"),
-            anchor="w",
-            justify="left",
-            wraplength=860,
+        board = tk.Frame(self.root, bg=GAUGE_BG)
+        board.pack(fill="both", expand=True, padx=20, pady=(8, 16))
+        self._scroll = ttk.Scrollbar(board, orient="vertical")
+        self._cards_canvas = tk.Canvas(board, bg=GAUGE_BG, highlightthickness=0, yscrollcommand=self._scroll.set)
+        self._scroll.configure(command=self._cards_canvas.yview)
+        self._cards_canvas.pack(side="left", fill="both", expand=True)
+        self._card_frame = tk.Frame(self._cards_canvas, bg=GAUGE_BG)
+        self._cards_window = self._cards_canvas.create_window((0, 0), window=self._card_frame, anchor="nw")
+        self._card_frame.bind("<Configure>", self._on_cards_configure)
+        self._cards_canvas.bind("<Configure>", self._on_cards_configure)
+        self._cards_canvas.bind("<Enter>", lambda _event: self._bind_wheel())
+        self._cards_canvas.bind("<Leave>", lambda _event: self._unbind_wheel())
+
+    def _bind_wheel(self) -> None:
+        self.root.bind_all("<Button-4>", self._on_wheel)
+        self.root.bind_all("<Button-5>", self._on_wheel)
+        self.root.bind_all("<MouseWheel>", self._on_wheel)
+
+    def _unbind_wheel(self) -> None:
+        self.root.unbind_all("<Button-4>")
+        self.root.unbind_all("<Button-5>")
+        self.root.unbind_all("<MouseWheel>")
+
+    def _on_wheel(self, event: tk.Event) -> None:
+        if getattr(event, "num", None) == 4:
+            self._cards_canvas.yview_scroll(-3, "units")
+        elif getattr(event, "num", None) == 5:
+            self._cards_canvas.yview_scroll(3, "units")
+        else:
+            self._cards_canvas.yview_scroll(int(-event.delta / 120), "units")
+
+    def _on_cards_configure(self, _event: tk.Event | None = None) -> None:
+        width = self._cards_canvas.winfo_width()
+        if width > 1:
+            self._cards_canvas.itemconfigure(self._cards_window, width=width)
+        self._cards_canvas.configure(scrollregion=self._cards_canvas.bbox("all"))
+        self._toggle_scrollbar()
+
+    def _toggle_scrollbar(self) -> None:
+        bbox = self._cards_canvas.bbox("all")
+        height = self._cards_canvas.winfo_height()
+        needed = bool(bbox and height > 1 and bbox[3] > height + 4)
+        mapped = bool(self._scroll.winfo_ismapped())
+        if needed and not mapped:
+            self._scroll.pack(side="right", fill="y")
+        elif mapped and not needed:
+            self._scroll.pack_forget()
+
+    def _bar(self, parent: tk.Misc, caption: str, variable: tk.StringVar) -> tuple[tk.Frame, tk.Label]:
+        zone = tk.Frame(parent, bg=GAUGE_CARD, highlightthickness=1, highlightbackground=GAUGE_LINE)
+        text = tk.Frame(zone, bg=GAUGE_CARD)
+        text.pack(side="left", fill="both", expand=True, padx=14, pady=8)
+        tk.Label(text, text=caption, bg=GAUGE_CARD, fg=GAUGE_MUTED, font=(self._ui, 10)).pack(anchor="w")
+        name = tk.Label(text, text=_EMPTY_FILE, bg=GAUGE_CARD, fg=GAUGE_MUTED, font=(self._ui, 13, "bold"), anchor="w")
+        name.pack(anchor="w")
+        hint = tk.Label(text, text=_FILE_HINT, bg=GAUGE_CARD, fg=GAUGE_MUTED, font=(self._ui, 11), anchor="w")
+        hint.pack(anchor="w")
+        ttk.Button(zone, text="Escolher...", style="Accent.TButton", command=lambda: self._pick(variable)).pack(
+            side="right", padx=10, pady=10
         )
-        self._banner_text.pack(side="left", fill="x", expand=True, padx=12, pady=10)
-        self._progress = ttk.Progressbar(self._results, mode="indeterminate", style="Amber.Horizontal.TProgressbar")
-        self._cards = tk.Frame(self._results, bg=NAVY)
-        self._chips = tk.Frame(self._results, bg=NAVY)
-        self._summary = tk.Label(
-            self._results, text="", bg=NAVY, fg=CREAM, font=(self._ui, 12), anchor="w", justify="left"
-        )
-        self._banner_on = False
-
-        report_head = tk.Frame(body, bg=NAVY)
-        report_head.pack(fill="x", padx=20, pady=(10, 0))
-        tk.Label(report_head, text="Relatório", bg=NAVY, fg=MUTED, font=(self._ui, 11), anchor="w").pack(side="left")
-
-        report = tk.Frame(body, bg=NAVY)
-        report.pack(fill="both", expand=True, padx=20, pady=(4, 16))
-        self._text = tk.Text(
-            report,
-            wrap="word",
-            bg=CARD,
-            fg=CREAM,
-            font=(self._mono, 12),
-            relief="flat",
-            padx=12,
-            pady=10,
-            highlightthickness=1,
-            highlightbackground=LINE,
-            insertbackground=CREAM,
-        )
-        scroll = ttk.Scrollbar(report, command=self._text.yview)
-        self._text.configure(yscrollcommand=scroll.set)
-        self._text.tag_configure("alto", foreground=ALTO)
-        self._text.tag_configure("médio", foreground=MEDIO)
-        self._text.tag_configure("info", foreground=INFO)
-        self._text.tag_configure("placeholder", foreground=MUTED)
-        self._text.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
-        self._text.configure(state="disabled")
-
-    def _zone(self, parent: tk.Misc, caption: str, variable: tk.StringVar) -> tuple[tk.Frame, tk.Label]:
-        zone = tk.Frame(parent, bg=CARD, highlightthickness=1, highlightbackground=AMBER, cursor="hand2")
-        tk.Label(zone, text=caption.upper(), bg=CARD, fg=MUTED, font=(self._ui, 10)).pack(pady=(16, 2))
-        ttk.Button(zone, text="Escolher...", command=lambda: self._pick(variable)).pack(pady=4)
-        name = tk.Label(zone, text=_EMPTY_FILE, bg=CARD, fg=MUTED, font=(self._ui, 12, "bold"), wraplength=420)
-        name.pack(pady=(6, 0))
-        tk.Label(zone, text=_FILE_HINT, bg=CARD, fg=MUTED, font=(self._ui, 11)).pack(pady=(2, 16))
-
-        def choose(_event: tk.Event | None = None) -> None:
-            self._pick(variable)
-
-        zone.bind("<Button-1>", choose)
-        for child in zone.winfo_children():
-            if not isinstance(child, ttk.Button):
-                child.bind("<Button-1>", choose)
-        variable.trace_add("write", lambda *_args: self._paint_name(name, variable))
+        variable.trace_add("write", lambda *_args: self._paint_name(name, hint, variable))
         return zone, name
 
-    def _paint_name(self, label: tk.Label, variable: tk.StringVar) -> None:
+    def _paint_name(self, name: tk.Label, hint: tk.Label, variable: tk.StringVar) -> None:
         raw = variable.get().strip()
         if not raw:
-            label.configure(text=_EMPTY_FILE, fg=MUTED)
+            name.configure(text=_EMPTY_FILE, fg=GAUGE_MUTED)
+            hint.configure(text=_FILE_HINT)
             return
-        path = Path(raw)
-        label.configure(text=path.name, fg=CREAM)
+        name.configure(text=Path(raw).name, fg=GAUGE_CREAM)
+        hint.configure(text=_FILE_READY)
 
     def _pick(self, variable: tk.StringVar) -> None:
         chosen = filedialog.askopenfilename(
@@ -433,15 +441,16 @@ class App:
 
     def _apply_mode(self) -> None:
         scanning = self._mode.get() != "diff"
-        span = 2 if scanning else 1
-        pad = 0 if scanning else 6
-        self._left_zone.grid(row=0, column=0, columnspan=span, sticky="nsew", padx=(0, pad))
+        self._left_zone.pack_forget()
+        self._right_zone.pack_forget()
+        self._left_zone.pack(fill="x", pady=(0, 0 if scanning else 8))
         if scanning:
-            self._right_zone.grid_remove()
             self._go.configure(text="Escanear")
+            self._title.set("Risco da planilha")
         else:
-            self._right_zone.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+            self._right_zone.pack(fill="x")
             self._go.configure(text="Comparar")
+            self._title.set("Risco da comparação")
 
     def _run(self) -> None:
         if self._busy:
@@ -450,8 +459,10 @@ class App:
         self.saved = None
         self._go.state(["disabled"])
         self._status.set(_BUSY)
-        self._show_banner("analisando", _BUSY)
-        self._layout_results()
+        self._meter = ("analisando", "Aguarde", "")
+        self._draw_meter()
+        self._show_note(_BUSY)
+        self._progress.pack(fill="x", pady=(6, 0))
         self._progress.start(12)
         self.root.update_idletasks()
         self.root.after(40, self._finish_run)
@@ -473,108 +484,131 @@ class App:
             self._status.set(_OFFLINE)
             self._refresh()
 
-    def _show_banner(self, kind: str, text: str) -> None:
-        colors = {
-            "analisando": (PANEL, AMBER),
-            "limpo": (OK_BG, OK),
-            "erro": (ERROR_BG, ALTO),
-        }
-        background, accent = colors.get(kind, (PANEL, AMBER))
-        self._banner.configure(bg=background)
-        self._banner_accent.configure(bg=accent)
-        self._banner_text.configure(bg=background, fg=CREAM, text=text)
-        self._banner_on = True
-
-    def _hide_banner(self) -> None:
-        self._banner_on = False
-
-    def _layout_results(self) -> None:
-        for widget in (self._banner, self._progress, self._cards, self._chips, self._summary):
-            if widget.winfo_ismapped():
-                widget.pack_forget()
-        if self._banner_on:
-            self._banner.pack(fill="x", padx=20, pady=(8, 0))
-        if self._busy:
-            self._progress.pack(fill="x", padx=20, pady=(4, 0))
-        if self._cards.winfo_children():
-            self._cards.pack(fill="x", padx=16, pady=(10, 0))
-        if self._chips.winfo_children():
-            self._chips.pack(fill="x", padx=20, pady=(8, 0))
-        if str(self._summary.cget("text")):
-            self._summary.pack(fill="x", padx=20, pady=(8, 0))
+    def _draw_meter(self) -> None:
+        grade, detail = self._meter[0], self._meter[2]
+        word = self._meter[1]
+        canvas = self._gauge
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 500)
+        height = max(canvas.winfo_height(), 280)
+        radius = min(width * 0.40, height * 0.62)
+        cx = width / 2
+        cy = height * 0.70
+        box = (cx - radius, cy - radius, cx + radius, cy + radius)
+        stroke = 22
+        if grade == "limpo":
+            canvas.create_arc(*box, start=0, extent=180, style="arc", outline=GAUGE_TRACK, width=stroke)
+            canvas.create_arc(*box, start=135, extent=45, style="arc", outline=OK, width=stroke)
+        elif grade in _NEEDLE:
+            canvas.create_arc(*box, start=120, extent=60, style="arc", outline=GAUGE_INFO, width=stroke)
+            canvas.create_arc(*box, start=60, extent=60, style="arc", outline=GAUGE_MEDIO, width=stroke)
+            canvas.create_arc(*box, start=0, extent=60, style="arc", outline=GAUGE_ALTO, width=stroke)
+        else:
+            canvas.create_arc(*box, start=0, extent=180, style="arc", outline=GAUGE_TRACK, width=stroke)
+        if grade in _NEEDLE:
+            angle = math.radians(_NEEDLE[grade])
+            length = radius * 0.78
+            canvas.create_line(
+                cx,
+                cy,
+                cx + math.cos(angle) * length,
+                cy - math.sin(angle) * length,
+                fill=GAUGE_CREAM,
+                width=5,
+                capstyle="round",
+            )
+            canvas.create_oval(cx - 7, cy - 7, cx + 7, cy + 7, fill=GAUGE_CREAM, outline=GAUGE_CREAM)
+        color = _WORD_COLOR.get(grade, GAUGE_MUTED)
+        size = 16 if grade == "" else 32
+        canvas.create_text(cx, cy - 62, text=word, fill=color, font=(self._ui, size, "bold"))
+        if detail:
+            canvas.create_text(cx, cy - 28, text=detail, fill=GAUGE_MUTED, font=(self._ui, 12))
 
     def _refresh(self) -> None:
         if self._busy:
             return
-        state = view_state(self.session)
-        if state == ERRO:
-            self._show_banner("erro", self.session.error)
-        elif state == LIMPO:
-            self._show_banner("limpo", "Nenhum achado.")
+        grade, detail = risk_grade(self.session)
+        word = _WORD.get(grade, "Escolha um arquivo")
+        if grade == "":
+            detail = ""
+            word = "Escolha um arquivo"
+        self._meter = (grade, word, detail)
+        self._draw_meter()
+        cards = window_cards(self.session, show=bool(self._show.get()))
+        if cards:
+            self._show_cards(cards)
+        elif grade == "erro":
+            self._show_note(self.session.error)
+        elif grade == "limpo":
+            self._show_note(_CLEAN)
         else:
-            self._hide_banner()
-        self._fill_cards(card_counts(self.session))
-        self._fill_chips(type_counts(self.session) if state == ACHADOS else [])
-        summary = summary_line(self.session) if self.session.mode or self.session.error else ""
-        self._summary.configure(text=summary)
-        self._layout_results()
-        show = bool(self._show.get())
-        text = result_text(self.session, show=show) if self.session.mode or self.session.error else ""
-        self._text.configure(state="normal")
-        self._text.delete("1.0", "end")
-        if text:
-            self._insert_colored(text)
-        else:
-            self._text.insert("end", _PLACEHOLDER, "placeholder")
-        self._text.configure(state="disabled")
+            self._show_note(_INVITE)
+        self.root.update_idletasks()
+        self._on_cards_configure()
 
-    def _fill_cards(self, cards: list[tuple[str, str, int]]) -> None:
-        for child in self._cards.winfo_children():
+    def _clear_cards(self) -> None:
+        for child in self._card_frame.winfo_children():
             child.destroy()
-        if not cards:
-            return
-        tones = {
-            "alto": ALTO,
-            "medio": MEDIO,
-            "info": INFO,
-            "conteudo": ALTO,
-            "estrutura": MEDIO,
-            "metadado": INFO,
-            "total": CREAM,
-        }
-        for key, label, count in cards:
-            color = tones.get(key, CREAM)
-            card = tk.Frame(self._cards, bg=CARD)
-            tk.Frame(card, bg=color, width=4).pack(side="left", fill="y")
-            inner = tk.Frame(card, bg=CARD)
-            inner.pack(side="left", fill="both", expand=True, padx=12, pady=8)
-            tk.Label(inner, text=str(count), bg=CARD, fg=color, font=(self._ui, 20, "bold")).pack(anchor="w")
-            tk.Label(inner, text=label, bg=CARD, fg=MUTED, font=(self._ui, 12)).pack(anchor="w")
-            card.pack(side="left", fill="x", expand=True, padx=4)
 
-    def _fill_chips(self, chips: list[tuple[str, int]]) -> None:
-        for child in self._chips.winfo_children():
-            child.destroy()
-        if not chips:
-            return
-        for label, count in chips:
+    def _show_note(self, text: str) -> None:
+        self._clear_cards()
+        tk.Label(
+            self._card_frame,
+            text=text,
+            bg=GAUGE_BG,
+            fg=GAUGE_MUTED,
+            font=(self._ui, 13),
+            anchor="w",
+            justify="left",
+            wraplength=760,
+        ).pack(anchor="w", padx=8, pady=8)
+
+    def _show_cards(self, cards) -> None:
+        self._clear_cards()
+        width = max(self._cards_canvas.winfo_width() - 36, 640)
+        for card in cards:
+            color = _CARD_COLOR.get(card.severity, GAUGE_INFO)
+            block = tk.Frame(self._card_frame, bg=GAUGE_CARD, highlightthickness=1, highlightbackground=GAUGE_LINE)
+            tk.Frame(block, bg=color, height=6).pack(fill="x")
+            inner = tk.Frame(block, bg=GAUGE_CARD)
+            inner.pack(fill="x", padx=14, pady=10)
             tk.Label(
-                self._chips,
-                text=f"  {label}  {count}  ",
-                bg=CARD_RAISED,
-                fg=CREAM,
-                font=(self._ui, 11),
-                padx=4,
-                pady=3,
-            ).pack(side="left", padx=4, pady=2)
-
-    def _insert_colored(self, text: str) -> None:
-        for line in text.splitlines(keepends=True):
-            tag = ""
-            for name in ("alto", "médio", "info"):
-                if line.startswith(name + " "):
-                    tag = name
-            self._text.insert("end", line, tag)
+                inner,
+                text=card.severity_label,
+                bg=GAUGE_CARD,
+                fg=color if card.severity != "alto" else GAUGE_ALTO_TEXT,
+                font=(self._ui, 11, "bold"),
+                anchor="w",
+            ).pack(anchor="w")
+            tk.Label(
+                inner,
+                text=card.title,
+                bg=GAUGE_CARD,
+                fg=GAUGE_CREAM,
+                font=(self._ui, 16, "bold"),
+                anchor="w",
+                justify="left",
+                wraplength=width,
+            ).pack(anchor="w", pady=(2, 0))
+            tk.Label(
+                inner,
+                text=card.where,
+                bg=GAUGE_CARD,
+                fg=GAUGE_MUTED,
+                font=(self._ui, 12),
+                anchor="w",
+            ).pack(anchor="w")
+            tk.Label(
+                inner,
+                text=card.action,
+                bg=GAUGE_CARD,
+                fg=GAUGE_CREAM,
+                font=(self._ui, 12),
+                anchor="w",
+                justify="left",
+                wraplength=width,
+            ).pack(anchor="w", pady=(6, 0))
+            block.pack(fill="x", pady=5)
 
     def _html(self) -> str:
         if not self.session.ready:

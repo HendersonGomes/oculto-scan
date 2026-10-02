@@ -24,6 +24,19 @@ OK = "#7DDBA4"
 OK_BG = "#14352A"
 ERROR_BG = "#3A2428"
 
+# Model 6 gauge. Body text on these panels stays at or above 4.5:1.
+GAUGE_BG = "#10151C"
+GAUGE_CARD = "#1B232E"
+GAUGE_TRACK = "#2A3441"
+GAUGE_LINE = "#3A4654"
+GAUGE_CREAM = "#F4F1EA"
+GAUGE_MUTED = "#B7C0C8"
+GAUGE_INFO = "#7FD3E0"
+GAUGE_MEDIO = "#F0C14A"
+GAUGE_ALTO = "#FF6B6B"
+GAUGE_ALTO_TEXT = "#FF8F87"
+GAUGE_INK = "#1A1406"
+
 UI_FONTS = ("Segoe UI", "Inter", "Cantarell", "DejaVu Sans")
 MONO_FONTS = ("Cascadia Mono", "Cascadia Code", "Consolas", "JetBrains Mono", "DejaVu Sans Mono")
 

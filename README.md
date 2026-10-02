@@ -74,7 +74,7 @@ python -m pip install -e ".[macro]"
 oculto-scan gui
 ```
 
-O mesmo comando é `oculto-scan-gui`. No Windows, esse atalho do `pip` usa o `pythonw` e não abre o console. `oculto-scan` continua no terminal. A opção de macro é necessária para ler VBA. O `.exe` já inclui essa parte. A janela é escura, navy e âmbar, no tom do ícone. O arquivo entra pelo botão grande **Escolher**. Arrastar e soltar ficou de fora: no Windows isso exige um gancho na janela, e esse tipo de gancho é o que o antivírus costuma marcar.
+O mesmo comando é `oculto-scan-gui`. No Windows, esse atalho do `pip` usa o `pythonw` e não abre o console. `oculto-scan` continua no terminal. A opção de macro é necessária para ler VBA. O `.exe` já inclui essa parte. A janela mostra um medidor (Limpo, Baixo, Médio ou Alto) e cartões curtos. O relatório completo continua no HTML. O arquivo entra pelo botão **Escolher**, e **Escanear** roda a análise neste computador. Arrastar e soltar ficou de fora: no Windows isso exige um gancho na janela, e esse tipo de gancho é o que o antivírus costuma marcar.
 
 ## Passo a passo para iniciantes (Windows)
 
