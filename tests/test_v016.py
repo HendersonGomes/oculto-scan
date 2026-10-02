@@ -2,6 +2,7 @@
 
 import json
 
+from oculto_scan import __version__
 from oculto_scan.cli import main, next_steps_text
 from tests.workbook_factory import build_workbook
 
@@ -42,7 +43,7 @@ def test_json_and_html_omit_the_block(tmp_path, capsys, monkeypatch):
     assert code == 0
     assert "Próximos passos" not in raw
     assert "oculto-scan --help" not in raw
-    assert payload["version"] == "0.2.0"
+    assert payload["version"] == __version__
     assert "mapa_da_rede" in payload
 
     code = main([str(path), "--format", "html", "--output", "relatorio.html"])

@@ -59,6 +59,69 @@ def scan_file(path: Path) -> Session:
     )
 
 
+# Resize events during maximize arrive in a burst. One apply, after the burst, is enough.
+RESIZE_DEBOUNCE_MS = 100
+
+
+class ResizeCoalescer:
+    """Collapse a burst of widths into one later apply.
+
+    ``schedule(delay_ms, callback)`` returns a token ``cancel`` can drop.
+    ``apply`` runs outside the event that queued the resize. If applying a
+    width itself asks for another resize, that request is kept and armed at
+    most twice, so a Configure loop cannot keep scheduling forever.
+    """
+
+    def __init__(self, schedule, cancel, apply, delay_ms: int = RESIZE_DEBOUNCE_MS) -> None:
+        self._schedule = schedule
+        self._cancel = cancel
+        self._apply = apply
+        self._delay_ms = delay_ms
+        self._token = None
+        self._width: int | None = None
+        self._in_apply = False
+        self._pending = False
+        self._followups = 0
+        self.fires = 0
+
+    @property
+    def delay_ms(self) -> int:
+        return self._delay_ms
+
+    def push(self, width: int) -> None:
+        if width < 1:
+            return
+        self._width = width
+        if self._in_apply:
+            self._pending = True
+            return
+        self._arm()
+
+    def _arm(self) -> None:
+        if self._token is not None:
+            self._cancel(self._token)
+            self._token = None
+        self._token = self._schedule(self._delay_ms, self._fire)
+
+    def _fire(self) -> None:
+        self._token = None
+        width = self._width
+        if width is None:
+            return
+        self.fires += 1
+        self._in_apply = True
+        self._pending = False
+        try:
+            self._apply(width)
+        finally:
+            self._in_apply = False
+        if self._pending and self._followups < 2:
+            self._followups += 1
+            self._arm()
+            return
+        self._followups = 0
+
+
 def clean_button_enabled(session: Session, *, mode: str, busy: bool) -> bool:
     """The clean button follows a finished scan of one workbook."""
     return not busy and mode == "scan" and session.ready and session.scanned > 0
@@ -83,6 +146,16 @@ def finish_clean_session(
     session = scan_file(dest)
     note = f"Cópia gravada: {dest.name}. O original não foi alterado. O medidor mostra a cópia."
     return dest, session, note
+
+
+def run_scan_job(mode: str, left: str, right: str) -> Session:
+    """Scan or compare off the Tk thread. Paths are plain strings, already read in the window."""
+    try:
+        if mode == "diff":
+            return compare_files(Path(left), Path(right))
+        return scan_file(Path(left))
+    except OSError as exc:
+        return Session(error=f"Não foi possível ler o arquivo ({exc}).")
 
 
 def compare_files(original: Path, received: Path) -> Session:
