@@ -74,7 +74,7 @@ python -m pip install -e ".[macro]"
 oculto-scan gui
 ```
 
-O mesmo comando é `oculto-scan-gui`. No Windows, esse atalho do `pip` usa o `pythonw` e não abre o console. `oculto-scan` continua no terminal. A opção de macro é necessária para ler VBA. O `.exe` já inclui essa parte. A janela mostra um medidor (Limpo, Baixo, Médio ou Alto) e cartões curtos. O relatório completo continua no HTML. O arquivo entra pelo botão **Escolher**, e **Escanear** roda a análise neste computador. Arrastar e soltar ficou de fora: no Windows isso exige um gancho na janela, e esse tipo de gancho é o que o antivírus costuma marcar.
+O mesmo comando é `oculto-scan-gui`. No Windows, esse atalho do `pip` usa o `pythonw` e não abre o console. `oculto-scan` continua no terminal. A opção de macro é necessária para ler VBA. O `.exe` já inclui essa parte. A janela mostra um medidor (Limpo, Baixo, Médio ou Alto) e cartões curtos. O relatório completo continua no HTML. O arquivo entra pelo botão **Escolher**, e **Escanear** roda a análise neste computador. Depois do scan, **Gerar cópia limpa** grava outro arquivo e o medidor passa a mostrar o risco dessa cópia. Arrastar e soltar ficou de fora: no Windows isso exige um gancho na janela, e esse tipo de gancho é o que o antivírus costuma marcar.
 
 ## Passo a passo para iniciantes (Windows)
 
@@ -419,8 +419,41 @@ oculto-scan proposta.xlsx --baseline .oculto-baseline.json
 oculto-scan proposta.xlsx --update-baseline .oculto-baseline.json
 oculto-scan diff enviada.xlsx recebida.xlsx
 oculto-scan diff enviada.xlsx recebida.xlsx --format html
+oculto-scan proposta.xlsx --limpar
+oculto-scan proposta.xlsx --limpar --saida copia.xlsx --forcar
+oculto-scan medicao.xlsm --limpar --remover-macros
+oculto-scan proposta.xlsx --limpar --remover-ocultas
 oculto-scan gui
 ```
+
+### Limpar uma cópia
+
+`oculto-scan proposta.xlsx --limpar` grava `proposta-limpa.xlsx` ao lado do original. O original não é aberto para escrita. `--saida` escolhe outro caminho. Se esse arquivo já existe, o comando para e pede `--forcar`. Nem `--forcar` substitui o arquivo de origem.
+
+Por padrão a cópia perde:
+
+- comentários e notas
+- autor, empresa e última modificação (`docProps`)
+- dado pessoal em propriedade personalizada (CPF, e-mail, caminho, nome de autor)
+- vínculos `externalLinks` — a fórmula que dependia deles vira o valor em cache
+- caminho de rede ou de usuário nos metadados
+
+Aba, linha e coluna ocultas **ficam**. Apagar uma aba oculta pode quebrar uma fórmula que ainda aponta para ela. O relatório só avisa. `--remover-ocultas` apaga a aba, esvazia a linha ou a coluna oculta (elas ficam visíveis e vazias, sem renumerar o resto) e troca a fórmula dependente pelo valor em cache.
+
+`--remover-macros` em um `.xlsm` grava `.xlsx` sem `vbaProject`. Sem essa opção a macro continua na cópia e o texto avisa.
+
+CPF, CNPJ e segredo **dentro da célula** não são reescritos. O relatório diz que ficaram para revisão humana.
+
+Depois da cópia, o mesmo scan roda nela e o texto mostra o antes, o que saiu e o que ainda resta. Na janela, o botão **Gerar cópia limpa** faz o mesmo e o medidor passa a ser o da cópia. As três caixas são: apagar ocultas, remover macros e substituir a cópia se ela já existir.
+
+Limitações:
+
+- a limpeza não recalcula fórmula; usa o valor que já estava em cache. Sem cache, a célula fica vazia
+- hiperlink de célula, conexão de dados, impressora e formato que esconde número continuam na cópia
+- uma fórmula com `INDIRETO` pode não ser reconhecida como dependente da área oculta
+- o desenho legado do comentário sai junto; um controle de formulário nesse mesmo desenho também sai
+- a macro não é executada. Ela só sai com `--remover-macros`
+- a cópia passa de novo pelo limite de zip (tamanho, quantidade de partes e razão de compressão)
 
 Sem caminho, o programa mostra a ajuda e sai com código 2. A pasta atual não é varrida. Uma pasta informada no comando é varrida de forma recursiva, incluindo subpastas. Arquivos `~$...` (trava do Excel) e extensões que não sejam `.xlsx`/`.xlsm` são ignorados nessa varredura. Um `.xls` ou `.csv` passado direto no comando não é lido: a saída diz isso e o código é 3.
 

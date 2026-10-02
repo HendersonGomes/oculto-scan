@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+- Modo `--limpar` grava uma cópia (`proposta-limpa.xlsx`, ou o caminho de `--saida`). O original não é alterado. Se a cópia já existe, o comando recusa, a menos que haja `--forcar`. A cópia nunca substitui o original.
+- Por padrão saem comentários e notas, autor, empresa e última modificação, dado pessoal em propriedade personalizada, vínculo `externalLinks` (a fórmula que dependia dele vira o valor em cache) e caminho de rede ou de usuário nos metadados.
+- Aba, linha e coluna ocultas ficam. Apagar pode quebrar fórmula. `--remover-ocultas` apaga a aba oculta, esvazia linha e coluna ocultas sem renumerar o resto, e troca a fórmula dependente pelo valor em cache. Sem valor em cache, a célula fica vazia.
+- `--remover-macros` grava `.xlsx` sem `vbaProject`. Sem a opção, o `.xlsm` continua com a macro e o relatório avisa.
+- CPF, CNPJ e segredo em célula não mudam. O relatório diz que ficaram para revisão humana. Em seguida a cópia é varrida: o texto mostra o antes, o que saiu e o que ainda resta.
+- Na janela, depois do scan, **Gerar cópia limpa** grava a cópia e o medidor passa a mostrar o risco dela. As opções ficam em caixas. Continua offline e mascarado por padrão. O programa em si não ganhou dependência nova.
+
 ## 0.1.12
 
 - Janela com medidor de risco: semicírculo com a nota Limpo, Baixo, Médio ou Alto (o pior achado; quatro ou mais infos sobem para Médio). Embaixo, cartões curtos com gravidade, título simples, aba ou célula e uma linha do que fazer. O texto longo continua só no relatório HTML, no terminal e no JSON. Sem dependência nova. Arrastar e soltar continua de fora.

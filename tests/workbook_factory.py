@@ -191,6 +191,7 @@ def build_workbook(
     external_cache: list[dict] | None = None,
     connections: str | None = None,
     printer_settings: bytes | None = None,
+    custom: dict[str, str] | None = None,
 ) -> Path:
     """Write a minimal OOXML workbook. ``sheets`` entries accept cells, comments, threads."""
     metadata = metadata or {}
@@ -434,6 +435,33 @@ def build_workbook(
         + _meta_tag("AppVersion", _meta_value(metadata, "AppVersion"))
         + "</Properties>"
     )
+    custom_rel = ""
+    if custom:
+        props = []
+        for index, (name, value) in enumerate(custom.items(), start=2):
+            props.append(
+                f'<property fmtid="{{D5CDD505-2E9C-101B-9397-08002B2CF9AE}}" pid="{index}" '
+                f'name="{xml_escape(name)}"><vt:lpwstr>{xml_escape(value)}</vt:lpwstr></property>'
+            )
+        parts["docProps/custom.xml"] = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" '
+            'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+            + "".join(props)
+            + "</Properties>"
+        )
+        overrides.append(
+            (
+                "/docProps/custom.xml",
+                "application/vnd.openxmlformats-officedocument.custom-properties+xml",
+            )
+        )
+        custom_rel = (
+            '<Relationship Id="rId4" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties" '
+            'Target="docProps/custom.xml"/>'
+        )
+
     def _rel(rel_id: str, rel_type: str, target: str) -> str:
         return f'<Relationship Id="{rel_id}" Type="{rel_type}" Target="{target}"/>'
 
@@ -455,6 +483,7 @@ def build_workbook(
             "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties",
             "docProps/app.xml",
         )
+        + custom_rel
         + "</Relationships>"
     )
     if persons:

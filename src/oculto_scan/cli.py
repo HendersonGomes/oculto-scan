@@ -33,6 +33,10 @@ exemplos:
   oculto-scan orcamento.xlsx --update-baseline .oculto-baseline.json
   oculto-scan diff enviada.xlsx recebida.xlsx
   oculto-scan diff enviada.xlsx recebida.xlsx --format html
+  oculto-scan proposta.xlsx --limpar
+  oculto-scan proposta.xlsx --limpar --saida copia.xlsx --forcar
+  oculto-scan proposta.xlsm --limpar --remover-macros
+  oculto-scan proposta.xlsx --limpar --remover-ocultas
   oculto-scan gui
 
 códigos de saída:
@@ -124,6 +128,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="analisa de propósito um arquivo maior que o limite padrão (64 MiB no total, 32 MiB por parte)",
     )
     parser.add_argument("--version", action="version", version=f"oculto-scan {__version__}")
+    parser.add_argument(
+        "--limpar",
+        action="store_true",
+        help="grava uma cópia sem comentários, metadados de autor e vínculos externos; o original não muda",
+    )
+    parser.add_argument(
+        "--saida",
+        type=Path,
+        help="caminho da cópia limpa (padrão: ao lado do original, com sufixo -limpa)",
+    )
+    parser.add_argument(
+        "--forcar",
+        action="store_true",
+        help="substitui a cópia se ela já existir; o original continua intocado",
+    )
+    parser.add_argument(
+        "--remover-ocultas",
+        action="store_true",
+        help="apaga abas ocultas e esvazia linhas e colunas ocultas, trocando a fórmula dependente pelo valor",
+    )
+    parser.add_argument(
+        "--remover-macros",
+        action="store_true",
+        help="gera .xlsx sem vbaProject",
+    )
     return parser
 
 
@@ -192,6 +221,146 @@ def next_steps_text(path: str, *, show: bool, needs_macro: bool) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _run_limpar(args: argparse.Namespace) -> int:
+    from oculto_scan.clean import (
+        CleanError,
+        inject_clean_html,
+        render_clean_json,
+        render_clean_text,
+        write_clean_copy,
+    )
+    from oculto_scan.workbook import WorkbookParseError
+    from oculto_scan.zipsafe import FileTooLargeError, ZipSafetyError
+
+    if len(args.caminhos) != 1:
+        print("O --limpar aceita um arquivo por vez.", file=sys.stderr)
+        return 2
+    if args.show:
+        blocked = show_is_blocked()
+        if blocked:
+            print(blocked, file=sys.stderr)
+            return 2
+    if args.update_baseline is not None or args.baseline is not None:
+        print("O --limpar não grava linha de base. Nada foi alterado.", file=sys.stderr)
+        return 2
+    if args.output is not None and args.formato != "html":
+        print("--output é o caminho do relatório HTML; use junto com --format html.", file=sys.stderr)
+        return 2
+    source = Path(args.caminhos[0])
+    if source.suffix.lower() not in {".xlsx", ".xlsm"} or not source.is_file():
+        print("O --limpar pede um arquivo .xlsx ou .xlsm.", file=sys.stderr)
+        return 2
+    before = scan_files(
+        [source],
+        fail_on=args.fail_on,
+        ignore_path=args.ignore,
+        entropy=args.entropy,
+        max_mb=args.max_mb,
+    )
+    for message in before.messages:
+        print(message, file=sys.stderr)
+    if before.exit_code == 2 and not before.findings:
+        return 2
+    try:
+        dest, result = write_clean_copy(
+            source,
+            args.saida,
+            remove_hidden=args.remover_ocultas,
+            remove_macros=args.remover_macros,
+            force=args.forcar,
+            max_mb=args.max_mb,
+        )
+    except CleanError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except FileTooLargeError as exc:
+        print(f"Não analisado: {exc}", file=sys.stderr)
+        return 3
+    except ZipSafetyError as exc:
+        print(f"Arquivo recusado por limite de segurança ({exc}). Nada foi gravado.", file=sys.stderr)
+        return 1
+    except WorkbookParseError as exc:
+        print(f"Não analisado: planilha ilegível ({exc}). Nada foi gravado.", file=sys.stderr)
+        return 3
+    after = scan_files(
+        [dest],
+        fail_on=args.fail_on,
+        ignore_path=args.ignore,
+        entropy=args.entropy,
+        max_mb=args.max_mb,
+    )
+    for message in after.messages:
+        print(message, file=sys.stderr)
+    if args.formato == "json":
+        sys.stdout.write(
+            render_clean_json(
+                source_name=source.name,
+                dest_name=dest.name,
+                result=result,
+                before_json=render_json(
+                    before.findings,
+                    ignored=before.ignored,
+                    scanned=before.scanned,
+                    network=before.network,
+                ),
+                after_json=render_json(
+                    after.findings,
+                    ignored=after.ignored,
+                    scanned=after.scanned,
+                    network=after.network,
+                ),
+                after=after.findings,
+            )
+        )
+    elif args.formato == "html":
+        if args.output is not None:
+            target = args.output
+        elif args.show:
+            target = Path("oculto-scan-relatorio-revelado.html")
+        else:
+            target = Path("oculto-scan-relatorio.html")
+        page = render_html(
+            after.findings,
+            ignored=after.ignored,
+            scanned=after.scanned,
+            files=after.files,
+            show=args.show,
+            network=after.network,
+        )
+        write_private_text(
+            target,
+            inject_clean_html(
+                page,
+                source_name=source.name,
+                dest_name=dest.name,
+                result=result,
+                after=after.findings,
+            ),
+        )
+        print(f"Cópia: {dest}")
+        print(f"Relatório salvo em {target}")
+    else:
+        after_text = render_text(
+            after.findings,
+            show=args.show,
+            ignored=after.ignored,
+            scanned=after.scanned,
+            color=stdout_wants_color(no_color=args.no_color),
+            network=after.network,
+        )
+        sys.stdout.write(
+            render_clean_text(
+                source_name=source.name,
+                dest_name=dest.name,
+                result=result,
+                before=before.findings,
+                after=after.findings,
+                after_text=after_text,
+            )
+        )
+    return after.exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
     force_utf8_stdio()
     args_list = list(sys.argv[1:] if argv is None else argv)
@@ -209,6 +378,11 @@ def main(argv: list[str] | None = None) -> int:
         return gui_main(args_list[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.limpar:
+        return _run_limpar(args)
+    if args.forcar or args.saida or args.remover_ocultas or args.remover_macros:
+        print("Use --forcar, --saida, --remover-ocultas e --remover-macros junto com --limpar.", file=sys.stderr)
+        return 2
     if not args.caminhos:
         parser.print_help(sys.stderr)
         print(
