@@ -1,6 +1,6 @@
 # oculto-scan para Windows
 
-`oculto-scan-setup.exe` instala a janela offline que verifica se uma planilha (`.xlsx` ou `.xlsm`) pode vazar dados antes do envio. `oculto-scan.exe` é o mesmo programa, sem instalador. Não é uma ferramenta de invasão. Não instala serviço e não envia o arquivo para lugar nenhum.
+`oculto-scan-setup.exe` instala a janela offline que verifica se uma planilha (`.xlsx` ou `.xlsm`) pode vazar dados antes do envio. O atalho abre só a janela, sem a janela preta do terminal. `oculto-scan.exe` é o mesmo programa, sem instalador. `oculto-scan-cli.exe` é a linha de comando. Não é uma ferramenta de invasão. Não instala serviço e não envia o arquivo para lugar nenhum.
 
 A assinatura de código ainda **não está ativa**. Estes arquivos **não são assinados**. O aviso do SmartScreen aparece por isso: em “Mais informações”, escolha “Executar assim mesmo”.
 

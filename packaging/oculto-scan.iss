@@ -2,10 +2,10 @@
 ; UTF-8 com BOM. A versão vem do CI (/DMyAppVersion e /DMyAppVersionQuad) ou do padrão abaixo.
 
 #ifndef MyAppVersion
-#define MyAppVersion "0.1.11"
+#define MyAppVersion "0.1.12"
 #endif
 #ifndef MyAppVersionQuad
-#define MyAppVersionQuad "0.1.11.0"
+#define MyAppVersionQuad "0.1.12.0"
 #endif
 
 #define MyAppName "oculto-scan"
@@ -54,8 +54,10 @@ Name: "desktopicon"; Description: "Criar um atalho na área de trabalho"; GroupD
 
 [Files]
 Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\oculto-scan-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
+; O atalho abre o .exe sem console. O de terminal fica na pasta, sem atalho.
 Name: "{group}\oculto-scan"; Filename: "{app}\{#MyAppExeName}"; Comment: "Verifica se a planilha pode vazar dados antes do envio"
 Name: "{autodesktop}\oculto-scan"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; Comment: "Verifica se a planilha pode vazar dados antes do envio"
 

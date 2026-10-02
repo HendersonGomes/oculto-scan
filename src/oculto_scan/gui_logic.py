@@ -156,3 +156,60 @@ def suggested_html_name(*, show: bool, mode: str) -> str:
     if mode == "diff":
         return "oculto-scan-diff-revelado.html" if show else "oculto-scan-diff.html"
     return "oculto-scan-relatorio-revelado.html" if show else "oculto-scan-relatorio.html"
+
+
+VAZIO = "vazio"
+ERRO = "erro"
+LIMPO = "limpo"
+ACHADOS = "achados"
+
+_SCAN_CARDS = (("alto", "alto"), ("medio", "médio"), ("info", "info"), ("total", "total"))
+_DIFF_CARDS = (
+    ("conteudo", "conteúdo"),
+    ("estrutura", "estrutura"),
+    ("metadado", "metadado"),
+    ("total", "total"),
+)
+
+
+def view_state(session: Session) -> str:
+    """Visual state of a finished session. The window adds «analisando» itself."""
+    if session.error:
+        return ERRO
+    if session.mode == "scan":
+        if session.findings or session.network:
+            return ACHADOS
+        return LIMPO
+    if session.mode == "diff" and session.diff is not None:
+        if session.diff.changes:
+            return ACHADOS
+        return LIMPO
+    return VAZIO
+
+
+def card_counts(session: Session) -> list[tuple[str, str, int]]:
+    """Severity or diff-category cards: (key, label, count). Empty before a result."""
+    state = view_state(session)
+    if state not in {LIMPO, ACHADOS}:
+        return []
+    if session.mode == "diff" and session.diff is not None:
+        counts = {"conteudo": 0, "estrutura": 0, "metadado": 0, "total": len(session.diff.changes)}
+        for change in session.diff.changes:
+            if change.category in counts:
+                counts[change.category] += 1
+        return [(key, label, counts[key]) for key, label in _DIFF_CARDS]
+    counts = summary(session.findings)
+    return [(key, label, counts[key]) for key, label in _SCAN_CARDS]
+
+
+def type_counts(session: Session) -> list[tuple[str, int]]:
+    """How many lines of each type the report lists. Order is count, then name."""
+    counts: dict[str, int] = {}
+    labels: list[str] = []
+    if session.mode == "scan":
+        labels = [finding.type_label for finding in session.findings if finding.rule != "mapa-rede"]
+    elif session.diff is not None:
+        labels = [change.type_label for change in session.diff.changes]
+    for label in labels:
+        counts[label] = counts.get(label, 0) + 1
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))

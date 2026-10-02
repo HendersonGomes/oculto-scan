@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.12
+
+- Janela redesenhada: tema escuro navy e âmbar, cabeçalho com o ícone, a versão e o selo 100% offline, área grande para escolher o arquivo, cartões por gravidade e o relatório em fonte monoespaçada. Os textos, a ordem e o conteúdo do relatório não mudam. Sem dependência nova. Arrastar e soltar continua de fora.
+- No Windows, o atalho e o `oculto-scan.exe` abrem só a janela, sem a janela preta do console. O terminal fica no `oculto-scan-cli.exe`. No `pip`, `oculto-scan-gui` usa o `pythonw`. Se não houver console, o programa não quebra quando a saída padrão vem vazia.
+
 ## 0.1.11
 
 - Ícone próprio: lupa sobre uma planilha, ponto âmbar, fundo navy. Entra no `.exe`, na janela e no instalador.

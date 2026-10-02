@@ -24,25 +24,32 @@ jobs:
       - name: Install
         run: python -m pip install --no-cache-dir -e ".[macro,package]"
       - name: Version resource
-        run: python packaging/write_version_info.py
+        run: |
+          python packaging/write_version_info.py
+          python packaging/write_version_info.py --output build/file_version_info_cli.txt --original-filename oculto-scan-cli.exe
       - name: Build
         # UPX fica desligado no .spec (upx=False). A flag --noupx não vale junto com um .spec.
+        # O .spec gera oculto-scan.exe sem console e oculto-scan-cli.exe com console.
         run: python -m PyInstaller --noconfirm --clean packaging/oculto-scan.spec
       - name: Smoke
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $expected = (python -c "import oculto_scan; print('oculto-scan ' + oculto_scan.__version__)").Trim()
-          $version = .\dist\oculto-scan.exe --version | Out-String
+          $version = .\dist\oculto-scan-cli.exe --version | Out-String
           if ($version -notmatch [regex]::Escape($expected)) {
             Write-Error "version [$version] esperada [$expected]"
             exit 1
           }
-          $check = .\dist\oculto-scan.exe --self-check | Out-String
-          if ($check -notmatch "(?m)^ok\s*$") {
+          $check = .\dist\oculto-scan-cli.exe --self-check 2>&1 | Out-String
+          if ($check -notmatch "ok") {
             Write-Error "self-check [$check]"
             exit 1
           }
+          python packaging/pe_subsystem.py .\dist\oculto-scan.exe 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python packaging/pe_subsystem.py .\dist\oculto-scan-cli.exe 3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install Inno Setup
         shell: pwsh
         run: |
@@ -81,7 +88,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          foreach ($name in @("oculto-scan.exe", "oculto-scan-setup.exe")) {
+          foreach ($name in @("oculto-scan.exe", "oculto-scan-cli.exe", "oculto-scan-setup.exe")) {
             $item = Get-Item ".\dist\$name"
             $hash = (Get-FileHash -Algorithm SHA256 $item).Hash.ToLower()
             Set-Content -Path ".\dist\$name.sha256" -Value "$hash  $name" -Encoding ascii
@@ -97,6 +104,8 @@ jobs:
           path: |
             dist/oculto-scan.exe
             dist/oculto-scan.exe.sha256
+            dist/oculto-scan-cli.exe
+            dist/oculto-scan-cli.exe.sha256
             dist/oculto-scan-setup.exe
             dist/oculto-scan-setup.exe.sha256
 
@@ -119,14 +128,17 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           hash=$(cut -d' ' -f1 dist/oculto-scan.exe.sha256)
+          cli=$(cut -d' ' -f1 dist/oculto-scan-cli.exe.sha256)
           setup=$(cut -d' ' -f1 dist/oculto-scan-setup.exe.sha256)
           {
             cat packaging/release-notes.md
             printf '\nSHA-256 oculto-scan.exe: %s\n' "$hash"
+            printf 'SHA-256 oculto-scan-cli.exe: %s\n' "$cli"
             printf 'SHA-256 oculto-scan-setup.exe: %s\n' "$setup"
           } > release-body.md
           gh release create "$tag" \
             dist/oculto-scan.exe dist/oculto-scan.exe.sha256 \
+            dist/oculto-scan-cli.exe dist/oculto-scan-cli.exe.sha256 \
             dist/oculto-scan-setup.exe dist/oculto-scan-setup.exe.sha256 \
             --title "oculto-scan $tag" \
             --notes-file release-body.md \
@@ -135,8 +147,8 @@ jobs:
       # Assinatura SignPath ainda DESLIGADA. O .exe e o instalador NÃO são assinados.
       # Ative o passo quando existirem SIGNPATH_API_TOKEN, SIGNPATH_ORGANIZATION_ID
       # e os slugs do projeto e da política. O artefato oculto-scan-windows traz os
-      # dois arquivos (oculto-scan.exe e oculto-scan-setup.exe); o pedido deve
-      # assinar os dois. Ele precisa continuar vindo de actions/upload-artifact v4
+      # três arquivos (oculto-scan.exe, oculto-scan-cli.exe e oculto-scan-setup.exe);
+      # o pedido deve assinar os três. Ele precisa continuar vindo de actions/upload-artifact v4
       # ou mais novo, no job exe deste workflow.
       # - name: submit signing request
       #   uses: signpath/github-action-submit-signing-request@v3

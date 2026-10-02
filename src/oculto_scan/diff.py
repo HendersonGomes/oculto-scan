@@ -24,6 +24,7 @@ from oculto_scan.report import (
     _REVEALED_BANNER,
     DISCLAIMER,
     _format_stamp,
+    ensure_stdio,
     fill_template,
     stdout_wants_color,
     write_private_text,
@@ -838,6 +839,7 @@ def load_diff(original: Path, received: Path, *, max_mb: int | None = None) -> D
 
 
 def run_diff(argv: list[str]) -> int:
+    ensure_stdio()
     parser = argparse.ArgumentParser(
         prog="oculto-scan diff",
         description=(
