@@ -6,12 +6,17 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from oculto_scan.clean import write_clean_copy
 from oculto_scan.diff import DiffReport, render_diff_html
 from oculto_scan.models import RISK_LABEL, Finding, NetworkHint
 from oculto_scan.public import inspect_bytes, inspect_diff_bytes
 from oculto_scan.report import DISCLAIMER, render_html, sorted_findings, summary
 
 ACCEPTED_SUFFIXES = {".xlsx", ".xlsm"}
+CLEAN_BUTTON = "Gerar cópia limpa"
+CLEAN_HIDDEN = "Apagar abas, linhas e colunas ocultas"
+CLEAN_MACROS = "Remover macros"
+CLEAN_FORCE = "Substituir a cópia se já existir"
 
 
 @dataclass
@@ -52,6 +57,32 @@ def scan_file(path: Path) -> Session:
         scanned=result.scanned,
         names=(path.name,),
     )
+
+
+def clean_button_enabled(session: Session, *, mode: str, busy: bool) -> bool:
+    """The clean button follows a finished scan of one workbook."""
+    return not busy and mode == "scan" and session.ready and session.scanned > 0
+
+
+def finish_clean_session(
+    source: Path,
+    *,
+    remove_hidden: bool = False,
+    remove_macros: bool = False,
+    force: bool = False,
+    output: Path | None = None,
+) -> tuple[Path, Session, str]:
+    """Write the copy and scan it, so the meter shows the copy."""
+    dest, _result = write_clean_copy(
+        source,
+        output,
+        remove_hidden=remove_hidden,
+        remove_macros=remove_macros,
+        force=force,
+    )
+    session = scan_file(dest)
+    note = f"Cópia gravada: {dest.name}. O original não foi alterado. O medidor mostra a cópia."
+    return dest, session, note
 
 
 def compare_files(original: Path, received: Path) -> Session:

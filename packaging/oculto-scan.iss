@@ -2,10 +2,10 @@
 ; UTF-8 com BOM. A versão vem do CI (/DMyAppVersion e /DMyAppVersionQuad) ou do padrão abaixo.
 
 #ifndef MyAppVersion
-#define MyAppVersion "0.1.12"
+#define MyAppVersion "0.2.0"
 #endif
 #ifndef MyAppVersionQuad
-#define MyAppVersionQuad "0.1.12.0"
+#define MyAppVersionQuad "0.2.0.0"
 #endif
 
 #define MyAppName "oculto-scan"

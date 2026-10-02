@@ -17,6 +17,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 from oculto_scan import __version__
+from oculto_scan.clean import CleanError
 from oculto_scan.gui import hide_console_window
 from oculto_scan.gui_help import (
     MENU_ABOUT,
@@ -32,8 +33,14 @@ from oculto_scan.gui_help import (
     update_help_text,
 )
 from oculto_scan.gui_logic import (
+    CLEAN_BUTTON,
+    CLEAN_FORCE,
+    CLEAN_HIDDEN,
+    CLEAN_MACROS,
     Session,
+    clean_button_enabled,
     compare_files,
+    finish_clean_session,
     result_html,
     risk_grade,
     scan_file,
@@ -68,6 +75,8 @@ _FILE_READY = "Escolha outro arquivo quando quiser"
 _LEAD = "A nota segue o pior achado e a quantidade. Não é uma porcentagem."
 _INVITE = "Escolha um arquivo para ver os achados aqui, em linguagem simples."
 _CLEAN = "Nenhum achado. O texto completo continua no relatório HTML."
+_CLEAN_HINT = "A cópia é outro arquivo. O original não muda."
+_CLEAN_BUSY = "Gerando a cópia limpa neste computador."
 
 _WORD = {
     "limpo": "Limpo",
@@ -134,8 +143,8 @@ class App:
         self._meter = ("", "Escolha um arquivo", "")
         root.title(f"oculto-scan {__version__}")
         root.configure(bg=GAUGE_BG)
-        root.minsize(960, 680)
-        root.geometry("1180x820")
+        root.minsize(980, 760)
+        root.geometry("1180x900")
         self._ui = _first_font(root, UI_FONTS)
         self._icon_image = apply_window_icon(root)
         self._mark = self._scaled_icon()
@@ -143,6 +152,9 @@ class App:
         self._left = tk.StringVar()
         self._right = tk.StringVar()
         self._show = tk.BooleanVar(value=False)
+        self._clean_hidden = tk.BooleanVar(value=False)
+        self._clean_macros = tk.BooleanVar(value=False)
+        self._clean_force = tk.BooleanVar(value=False)
         self._status = tk.StringVar(value=_OFFLINE)
         self._title = tk.StringVar(value="Risco da planilha")
         self._apply_theme()
@@ -354,6 +366,19 @@ class App:
         ttk.Button(actions, text="Abrir relatório HTML", command=self._open).pack(side="left")
 
         ttk.Checkbutton(side, text=_SHOW, variable=self._show, command=self._refresh).pack(anchor="w", pady=(10, 0))
+        clean_row = tk.Frame(side, bg=GAUGE_BG)
+        clean_row.pack(fill="x", pady=(8, 0))
+        self._clean_btn = ttk.Button(clean_row, text=CLEAN_BUTTON, command=self._clean_copy)
+        self._clean_btn.pack(side="left")
+        self._clean_btn.state(["disabled"])
+        tk.Label(clean_row, text=_CLEAN_HINT, bg=GAUGE_BG, fg=GAUGE_MUTED, font=(self._ui, 11)).pack(
+            side="left", padx=8
+        )
+        options = tk.Frame(side, bg=GAUGE_BG)
+        options.pack(anchor="w", pady=(4, 0))
+        ttk.Checkbutton(options, text=CLEAN_HIDDEN, variable=self._clean_hidden).pack(anchor="w")
+        ttk.Checkbutton(options, text=CLEAN_MACROS, variable=self._clean_macros).pack(anchor="w")
+        ttk.Checkbutton(options, text=CLEAN_FORCE, variable=self._clean_force).pack(anchor="w")
         tk.Label(side, textvariable=self._status, bg=GAUGE_BG, fg=GAUGE_MUTED, font=(self._ui, 11), anchor="w").pack(
             anchor="w", pady=(6, 0)
         )
@@ -533,6 +558,10 @@ class App:
             word = "Escolha um arquivo"
         self._meter = (grade, word, detail)
         self._draw_meter()
+        if clean_button_enabled(self.session, mode=self._mode.get(), busy=self._busy):
+            self._clean_btn.state(["!disabled"])
+        else:
+            self._clean_btn.state(["disabled"])
         cards = window_cards(self.session, show=bool(self._show.get()))
         if cards:
             self._show_cards(cards)
@@ -608,6 +637,46 @@ class App:
                 wraplength=width,
             ).pack(anchor="w", pady=(6, 0))
             block.pack(fill="x", pady=5)
+
+    def _clean_copy(self) -> None:
+        if self._busy or not clean_button_enabled(self.session, mode=self._mode.get(), busy=False):
+            return
+        self._busy = True
+        self.saved = None
+        self._clean_btn.state(["disabled"])
+        self._go.state(["disabled"])
+        self._status.set(_CLEAN_BUSY)
+        self._meter = ("analisando", "Aguarde", "")
+        self._draw_meter()
+        self._show_note(_CLEAN_BUSY)
+        self._progress.pack(fill="x", pady=(6, 0))
+        self._progress.start(12)
+        self.root.update_idletasks()
+        self.root.after(40, self._finish_clean)
+
+    def _finish_clean(self) -> None:
+        note = ""
+        try:
+            _dest, session, note = finish_clean_session(
+                Path(self._left.get()),
+                remove_hidden=bool(self._clean_hidden.get()),
+                remove_macros=bool(self._clean_macros.get()),
+                force=bool(self._clean_force.get()),
+            )
+            self._left.set(str(_dest))
+            self.session = session
+            self._title.set("Risco da cópia limpa")
+        except CleanError as exc:
+            self._notice(str(exc))
+        except OSError as exc:
+            self._notice(f"Não foi possível gravar a cópia ({exc}).")
+        finally:
+            self._progress.stop()
+            self._progress.pack_forget()
+            self._busy = False
+            self._go.state(["!disabled"])
+            self._status.set(note or _OFFLINE)
+            self._refresh()
 
     def _html(self) -> str:
         if not self.session.ready:
