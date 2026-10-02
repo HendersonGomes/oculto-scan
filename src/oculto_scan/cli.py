@@ -195,6 +195,10 @@ def next_steps_text(path: str, *, show: bool, needs_macro: bool) -> str:
 def main(argv: list[str] | None = None) -> int:
     force_utf8_stdio()
     args_list = list(sys.argv[1:] if argv is None else argv)
+    if "--self-check" in args_list:
+        from oculto_scan.gui import main as gui_main
+
+        return gui_main(["--self-check"])
     if args_list and args_list[0] == "diff":
         from oculto_scan.diff import run_diff
 

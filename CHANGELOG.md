@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.12
+
+- Janela com medidor de risco: semicírculo com a nota Limpo, Baixo, Médio ou Alto (o pior achado; quatro ou mais infos sobem para Médio). Embaixo, cartões curtos com gravidade, título simples, aba ou célula e uma linha do que fazer. O texto longo continua só no relatório HTML, no terminal e no JSON. Sem dependência nova. Arrastar e soltar continua de fora.
+- No Windows, o atalho e o `oculto-scan.exe` abrem só a janela, sem a janela preta do console. O terminal fica no `oculto-scan-cli.exe`. No `pip`, `oculto-scan-gui` usa o `pythonw`. Se não houver console, o programa não quebra quando a saída padrão vem vazia.
+
 ## 0.1.11
 
 - Ícone próprio: lupa sobre uma planilha, ponto âmbar, fundo navy. Entra no `.exe`, na janela e no instalador.

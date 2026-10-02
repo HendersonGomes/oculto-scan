@@ -1,4 +1,4 @@
-"""PyInstaller entry. Opens the window, or prints the version with --version."""
+"""PyInstaller entry for the windowed program. No console window."""
 
 from oculto_scan.gui import console_main
 

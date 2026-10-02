@@ -6,7 +6,7 @@
 
 [![Baixar o instalador para Windows](https://img.shields.io/badge/Baixar-instalador_Windows-1f5f6b?style=for-the-badge)](https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan-setup.exe)
 
-Quem prefere não instalar pode baixar o [oculto-scan.exe portátil](https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan.exe).
+Quem prefere não instalar pode baixar o [oculto-scan.exe portátil](https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan.exe). Ele abre só a janela, sem a janela preta do terminal. O [oculto-scan-cli.exe](https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan-cli.exe) é o mesmo programa para a linha de comando.
 
 Se a ferramenta ajudou, deixe uma estrela neste repositório.
 
@@ -32,7 +32,7 @@ Quem não quer instalar Python usa o instalador. O arquivo é `oculto-scan-setup
 
 https://github.com/HendersonGomes/oculto-scan/releases/latest
 
-O botão no topo baixa esse instalador. O `oculto-scan.exe` portátil está na mesma página. Os dois ainda **não são assinados**. A macro já vem dentro do programa. Nada é enviado para a internet.
+O botão no topo baixa esse instalador. O atalho do menu Iniciar abre só a janela. O `oculto-scan.exe` portátil faz o mesmo, sem console. O `oculto-scan-cli.exe`, na mesma página, é para o terminal. Os arquivos ainda **não são assinados**. A macro já vem dentro do programa. Nada é enviado para a internet.
 
 ### Aviso do SmartScreen
 
@@ -55,11 +55,15 @@ Get-FileHash -Algorithm SHA256 .\oculto-scan-setup.exe
 Get-FileHash -Algorithm SHA256 .\oculto-scan.exe
 ```
 
+```powershell
+Get-FileHash -Algorithm SHA256 .\oculto-scan-cli.exe
+```
+
 O hash tem de ser igual ao da release. Se for diferente, apague o arquivo e baixe de novo.
 
 ### Desinstalar
 
-Se usou o instalador, abra **Adicionar ou remover programas**, procure `oculto-scan` e escolha Desinstalar. Não há serviço. Se baixou só o `.exe` portátil, apague esse arquivo.
+Se usou o instalador, abra **Adicionar ou remover programas**, procure `oculto-scan` e escolha Desinstalar. Não há serviço. Se baixou o portátil, apague o `oculto-scan.exe` e, se estiver na pasta, o `oculto-scan-cli.exe`.
 
 ### Abrir a janela com Python
 
@@ -70,7 +74,7 @@ python -m pip install -e ".[macro]"
 oculto-scan gui
 ```
 
-O mesmo comando é `oculto-scan-gui`. A opção de macro é necessária para ler VBA. O `.exe` já inclui essa parte. A janela pede o arquivo pelo botão **Escolher**. Arrastar e soltar ficou de fora: no Windows isso exige um gancho na janela, e esse tipo de gancho é o que o antivírus costuma marcar.
+O mesmo comando é `oculto-scan-gui`. No Windows, esse atalho do `pip` usa o `pythonw` e não abre o console. `oculto-scan` continua no terminal. A opção de macro é necessária para ler VBA. O `.exe` já inclui essa parte. A janela mostra um medidor (Limpo, Baixo, Médio ou Alto) e cartões curtos. O relatório completo continua no HTML. O arquivo entra pelo botão **Escolher**, e **Escanear** roda a análise neste computador. Arrastar e soltar ficou de fora: no Windows isso exige um gancho na janela, e esse tipo de gancho é o que o antivírus costuma marcar.
 
 ## Passo a passo para iniciantes (Windows)
 
@@ -359,12 +363,18 @@ Get-FileHash -Algorithm SHA256 .\oculto-scan-setup.exe
 
 ### Arquivo .exe portátil
 
-Baixe de novo e apague o `oculto-scan.exe` antigo:
+Baixe de novo e apague o arquivo antigo. `oculto-scan.exe` abre só a janela. `oculto-scan-cli.exe` é o terminal.
 
 https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan.exe
 
 ```powershell
 Get-FileHash -Algorithm SHA256 .\oculto-scan.exe
+```
+
+https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan-cli.exe
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\oculto-scan-cli.exe
 ```
 
 ### Instalação pelo código

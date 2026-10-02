@@ -51,8 +51,22 @@ def enable_windows_vt() -> bool:
         return False
 
 
+def ensure_stdio() -> None:
+    """Replace a missing stdout or stderr.
+
+    ``pythonw`` and a windowed PyInstaller exe leave both as ``None``.
+    ``print`` and ``isatty`` would then raise. A discarded stream keeps the
+    window alive and leaves the console program unchanged when a stream exists.
+    """
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
+
+
 def stdout_wants_color(*, no_color: bool) -> bool:
     """Color only on a TTY, unless NO_COLOR or --no-color says otherwise."""
+    ensure_stdio()
     if no_color or os.environ.get("NO_COLOR"):
         return False
     if not sys.stdout.isatty():
@@ -259,6 +273,7 @@ def fill_template(template: str, **values: str) -> str:
 
 def force_utf8_stdio() -> None:
     """Keep ``→`` readable when Windows redirects stdout as cp1252."""
+    ensure_stdio()
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is None:

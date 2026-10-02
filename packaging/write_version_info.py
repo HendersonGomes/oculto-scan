@@ -22,7 +22,7 @@ def version_quad(version: str) -> tuple[int, int, int, int]:
     return numbers[0], numbers[1], numbers[2], numbers[3]
 
 
-def render_version_info(version: str) -> str:
+def render_version_info(version: str, original_filename: str = "oculto-scan.exe") -> str:
     quad = version_quad(version)
     text = ".".join(str(part) for part in quad)
     return f"""# UTF-8
@@ -49,7 +49,7 @@ VSVersionInfo(
         StringStruct('FileVersion', '{text}'),
         StringStruct('InternalName', 'oculto-scan'),
         StringStruct('LegalCopyright', 'Copyright 2026 Henderson Gomes'),
-        StringStruct('OriginalFilename', 'oculto-scan.exe'),
+        StringStruct('OriginalFilename', '{original_filename}'),
         StringStruct('ProductName', 'oculto-scan'),
         StringStruct('ProductVersion', '{text}')
         ])
@@ -64,10 +64,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pyproject", type=Path, default=Path("pyproject.toml"))
     parser.add_argument("--output", type=Path, default=Path("build/file_version_info.txt"))
+    parser.add_argument("--original-filename", default="oculto-scan.exe")
     args = parser.parse_args()
     version = read_project_version(args.pyproject)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(render_version_info(version), encoding="utf-8")
+    args.output.write_text(
+        render_version_info(version, original_filename=args.original_filename),
+        encoding="utf-8",
+    )
     print(args.output)
 
 

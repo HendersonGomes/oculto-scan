@@ -5,9 +5,11 @@ from __future__ import annotations
 import sys
 
 from oculto_scan import __version__
+from oculto_scan.report import ensure_stdio
 
 
 def main(argv: list[str] | None = None) -> int:
+    ensure_stdio()
     args = list(sys.argv[1:] if argv is None else argv)
     if "--version" in args or "-V" in args:
         print(f"oculto-scan {__version__}")
