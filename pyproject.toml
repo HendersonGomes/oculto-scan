@@ -34,7 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest==8.3.3",
-    "ruff==0.6.9",
+    "ruff==0.16.9",
     "openpyxl==3.1.5",
 ]
 macro = [
