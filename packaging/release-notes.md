@@ -1,12 +1,12 @@
 # oculto-scan para Windows
 
-`oculto-scan.exe` é uma janela offline para verificar se uma planilha (`.xlsx` ou `.xlsm`) pode vazar dados antes do envio. Não é uma ferramenta de invasão. Não instala serviço, não muda o sistema e não envia o arquivo para lugar nenhum.
+`oculto-scan-setup.exe` instala a janela offline que verifica se uma planilha (`.xlsx` ou `.xlsm`) pode vazar dados antes do envio. `oculto-scan.exe` é o mesmo programa, sem instalador. Não é uma ferramenta de invasão. Não instala serviço e não envia o arquivo para lugar nenhum.
 
-A assinatura de código ainda **não está ativa**. Este `.exe` **não é assinado**. O aviso do SmartScreen aparece por isso: em “Mais informações”, escolha “Executar assim mesmo”.
+A assinatura de código ainda **não está ativa**. Estes arquivos **não são assinados**. O aviso do SmartScreen aparece por isso: em “Mais informações”, escolha “Executar assim mesmo”.
 
-Para conferir o arquivo, compare o SHA-256 abaixo com `Get-FileHash -Algorithm SHA256 .\oculto-scan.exe` no PowerShell.
+Para conferir, compare o SHA-256 abaixo com `Get-FileHash -Algorithm SHA256` no PowerShell.
 
-Para desinstalar, apague o `.exe`. Não há instalador.
+Para desinstalar o instalador, use Adicionar ou remover programas. O portátil sai ao apagar o `.exe`.
 
 ## Code signing policy
 

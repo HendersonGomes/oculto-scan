@@ -43,8 +43,9 @@ VSVersionInfo(
       StringTable(
         '040904B0',
         [
-        StringStruct('CompanyName', 'oculto-scan'),
-        StringStruct('FileDescription', 'oculto-scan'),
+        StringStruct('Comments', 'Apache-2.0'),
+        StringStruct('CompanyName', 'Henderson Gomes'),
+        StringStruct('FileDescription', 'Verifica se a planilha pode vazar dados antes do envio.'),
         StringStruct('FileVersion', '{text}'),
         StringStruct('InternalName', 'oculto-scan'),
         StringStruct('LegalCopyright', 'Copyright 2026 Henderson Gomes'),

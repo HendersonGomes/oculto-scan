@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oculto-scan"
-version = "0.1.10"
+version = "0.1.11"
 description = "Scanner offline de vazamento de dados em planilhas de obra (.xlsx/.xlsm)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -53,6 +53,9 @@ Source = "https://github.com/HendersonGomes/oculto-scan"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+oculto_scan = ["oculto-scan.png", "oculto-scan.ico"]
 
 [tool.ruff]
 line-length = 120

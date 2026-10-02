@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="oculto-scan">
+  <title>oculto-scan</title>
+  <rect width="256" height="256" rx="52" fill="#0E2433"/>
+  <rect x="34" y="38" width="150" height="172" rx="14" fill="#F7F4EF"/>
+  <g clip-path="url(#sheet)">
+    <path d="M84 38 V210 M134 38 V210 M34 80 H184 M34 122 H184 M34 164 H184" stroke="#0E2433" stroke-width="5" opacity="0.28"/>
+    <rect x="88" y="84" width="42" height="34" rx="4" fill="#E6A317"/>
+  </g>
+  <circle cx="168" cy="158" r="48" fill="#0E2433" fill-opacity="0.18" stroke="#F0C14A" stroke-width="14"/>
+  <circle cx="168" cy="158" r="9" fill="#E6A317"/>
+  <line x1="202" y1="192" x2="230" y2="220" stroke="#F0C14A" stroke-width="16" stroke-linecap="round"/>
+  <defs>
+    <clipPath id="sheet">
+      <rect x="34" y="38" width="150" height="172" rx="14"/>
+    </clipPath>
+  </defs>
+</svg>

@@ -4,7 +4,9 @@
 [![Release](https://img.shields.io/github/v/release/HendersonGomes/oculto-scan)](https://github.com/HendersonGomes/oculto-scan/releases/latest)
 [![Licença Apache-2.0](https://img.shields.io/github/license/HendersonGomes/oculto-scan)](https://github.com/HendersonGomes/oculto-scan/blob/main/LICENSE)
 
-[![Baixar oculto-scan.exe para Windows](https://img.shields.io/badge/Baixar-oculto--scan.exe-1f5f6b?style=for-the-badge)](https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan.exe)
+[![Baixar o instalador para Windows](https://img.shields.io/badge/Baixar-instalador_Windows-1f5f6b?style=for-the-badge)](https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan-setup.exe)
+
+Quem prefere não instalar pode baixar o [oculto-scan.exe portátil](https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan.exe).
 
 Se a ferramenta ajudou, deixe uma estrela neste repositório.
 
@@ -24,13 +26,13 @@ Henderson Gomes faz checagem de arquivos antes do envio para construtoras. O con
 
 Dúvidas: use o menu Ajuda > Contato da janela ou [abra uma issue](https://github.com/HendersonGomes/oculto-scan/issues).
 
-## Baixar o programa para Windows (.exe)
+## Baixar o programa para Windows
 
-Quem não quer instalar Python pode usar a janela. O arquivo é `oculto-scan.exe`, na página de releases:
+Quem não quer instalar Python usa o instalador. O arquivo é `oculto-scan-setup.exe`:
 
-https://github.com/HendersonGomes/oculto-scan/releases
+https://github.com/HendersonGomes/oculto-scan/releases/latest
 
-Ele ainda **não é assinado**. Não há instalador: o download é só o programa. A macro já vem dentro do `.exe`. Nada é enviado para a internet.
+O botão no topo baixa esse instalador. O `oculto-scan.exe` portátil está na mesma página. Os dois ainda **não são assinados**. A macro já vem dentro do programa. Nada é enviado para a internet.
 
 ### Aviso do SmartScreen
 
@@ -43,7 +45,11 @@ Se o botão não aparecer, confira o SHA-256 antes de seguir.
 
 ### Conferir o SHA-256
 
-Cada release traz o hash ao lado do `.exe` (arquivo `oculto-scan.exe.sha256` e a mesma linha nas notas). No PowerShell, na pasta onde o arquivo foi salvo:
+Cada release traz o hash ao lado do arquivo (`.sha256` e a mesma linha nas notas). No PowerShell, na pasta onde o arquivo foi salvo:
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\oculto-scan-setup.exe
+```
 
 ```powershell
 Get-FileHash -Algorithm SHA256 .\oculto-scan.exe
@@ -53,7 +59,7 @@ O hash tem de ser igual ao da release. Se for diferente, apague o arquivo e baix
 
 ### Desinstalar
 
-Não tem instalador, serviço nem entrada no menu Iniciar. Para remover, apague `oculto-scan.exe`.
+Se usou o instalador, abra **Adicionar ou remover programas**, procure `oculto-scan` e escolha Desinstalar. Não há serviço. Se baixou só o `.exe` portátil, apague esse arquivo.
 
 ### Abrir a janela com Python
 
@@ -207,7 +213,7 @@ Se `oculto-scan` não for reconhecido, troque por `python -m oculto_scan diff`. 
 
 ### 8. Atualizar para uma versão nova
 
-A seção [Como atualizar](#como-atualizar) tem os dois caminhos: baixar o `.exe` de novo, ou `git pull` na pasta do clone. O programa não procura versão nova sozinho.
+A seção [Como atualizar](#como-atualizar) tem os caminhos: instalar o setup por cima, baixar o `.exe` portátil de novo, ou `git pull` na pasta do clone. O programa não procura versão nova sozinho.
 
 ### Monte uma planilha de demonstração
 
@@ -339,13 +345,23 @@ Ou acrescente a pasta Scripts ao PATH (em geral `%APPDATA%\Python\Python314\Scri
 
 O programa não procura versão nova sozinho. Quando sair uma release, escolha um dos caminhos.
 
-### Arquivo .exe
+### Instalador
 
-Baixe de novo a última versão e apague o `oculto-scan.exe` antigo:
+Baixe o setup novo e instale por cima. A versão antiga é substituída. Não precisa apagar a pasta antes.
 
-https://github.com/HendersonGomes/oculto-scan/releases/latest
+https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan-setup.exe
 
-Na pasta onde o arquivo novo foi salvo, confira o SHA-256. O hash tem de ser o da release.
+Na pasta onde o arquivo foi salvo, confira o SHA-256. O hash tem de ser o da release.
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\oculto-scan-setup.exe
+```
+
+### Arquivo .exe portátil
+
+Baixe de novo e apague o `oculto-scan.exe` antigo:
+
+https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan.exe
 
 ```powershell
 Get-FileHash -Algorithm SHA256 .\oculto-scan.exe

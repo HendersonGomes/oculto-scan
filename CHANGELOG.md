@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.11
+
+- Ícone próprio: lupa sobre uma planilha, ponto âmbar, fundo navy. Entra no `.exe`, na janela e no instalador.
+- Instalador `oculto-scan-setup.exe` em português. Por padrão instala para o usuário atual, sem administrador, e há opção de instalar para todos. Atalho no menu Iniciar, atalho opcional na área de trabalho e entrada em Adicionar ou remover programas. Uma versão nova instala por cima. O `.exe` portátil continua na mesma release. Sem UPX. A assinatura continua desligada.
+
 ## 0.1.10
 
 - Menu **Ajuda** › **Contato / suporte** na janela, também na caixa **Sobre**. O botão abre o programa de e-mail do computador. O oculto-scan não envia a mensagem e não acessa a rede. O endereço não aparece no README: lá a orientação é usar esse menu ou abrir uma issue.

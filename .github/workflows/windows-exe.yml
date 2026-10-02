@@ -43,14 +43,51 @@ jobs:
             Write-Error "self-check [$check]"
             exit 1
           }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $expected = "79b7a1063b3888bb8eceb44a8c28e90ccdaa22ac71f9272de1dac79b42941dbd"
+          $dest = Join-Path $env:TEMP "innosetup-6.5.0.exe"
+          Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/is-6_5_0/innosetup-6.5.0.exe" -OutFile $dest
+          $hash = (Get-FileHash -Algorithm SHA256 $dest).Hash.ToLower()
+          if ($hash -ne $expected) {
+            Write-Error "Inno Setup hash [$hash]"
+            exit 1
+          }
+          Start-Process -FilePath $dest -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -Wait
+      - name: Installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (python -c "import oculto_scan; print(oculto_scan.__version__)").Trim()
+          $parts = @($version.Split("."))
+          while ($parts.Count -lt 4) { $parts += "0" }
+          $quad = ($parts[0..3] -join ".")
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            Write-Error "ISCC nao encontrado"
+            exit 1
+          }
+          & $iscc "/DMyAppVersion=$version" "/DMyAppVersionQuad=$quad" "packaging\oculto-scan.iss"
+          if (-not (Test-Path .\dist\oculto-scan-setup.exe)) {
+            Write-Error "instalador ausente"
+            exit 1
+          }
       - name: Checksum
         shell: pwsh
         run: |
-          $item = Get-Item .\dist\oculto-scan.exe
-          $hash = (Get-FileHash -Algorithm SHA256 $item).Hash.ToLower()
-          Set-Content -Path .\dist\oculto-scan.exe.sha256 -Value "$hash  oculto-scan.exe" -Encoding ascii
-          Write-Host "SHA-256 $hash"
-          Write-Host "bytes $($item.Length)"
+          $ErrorActionPreference = "Stop"
+          foreach ($name in @("oculto-scan.exe", "oculto-scan-setup.exe")) {
+            $item = Get-Item ".\dist\$name"
+            $hash = (Get-FileHash -Algorithm SHA256 $item).Hash.ToLower()
+            Set-Content -Path ".\dist\$name.sha256" -Value "$hash  $name" -Encoding ascii
+            Write-Host "SHA-256 $name $hash"
+            Write-Host "bytes $($item.Length)"
+          }
       - name: Upload unsigned exe
         id: upload-unsigned-artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -60,6 +97,8 @@ jobs:
           path: |
             dist/oculto-scan.exe
             dist/oculto-scan.exe.sha256
+            dist/oculto-scan-setup.exe
+            dist/oculto-scan-setup.exe.sha256
 
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -80,18 +119,25 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           hash=$(cut -d' ' -f1 dist/oculto-scan.exe.sha256)
+          setup=$(cut -d' ' -f1 dist/oculto-scan-setup.exe.sha256)
           {
             cat packaging/release-notes.md
-            printf '\nSHA-256: %s\n' "$hash"
+            printf '\nSHA-256 oculto-scan.exe: %s\n' "$hash"
+            printf 'SHA-256 oculto-scan-setup.exe: %s\n' "$setup"
           } > release-body.md
-          gh release create "$tag" dist/oculto-scan.exe dist/oculto-scan.exe.sha256 \
+          gh release create "$tag" \
+            dist/oculto-scan.exe dist/oculto-scan.exe.sha256 \
+            dist/oculto-scan-setup.exe dist/oculto-scan-setup.exe.sha256 \
             --title "oculto-scan $tag" \
-            --notes-file release-body.md
+            --notes-file release-body.md \
+            --latest
 
-      # Assinatura SignPath ainda DESLIGADA. O .exe desta release NÃO é assinado.
+      # Assinatura SignPath ainda DESLIGADA. O .exe e o instalador NÃO são assinados.
       # Ative o passo quando existirem SIGNPATH_API_TOKEN, SIGNPATH_ORGANIZATION_ID
-      # e os slugs do projeto e da política. O artefato precisa continuar vindo de
-      # actions/upload-artifact v4 ou mais novo, no job exe deste workflow.
+      # e os slugs do projeto e da política. O artefato oculto-scan-windows traz os
+      # dois arquivos (oculto-scan.exe e oculto-scan-setup.exe); o pedido deve
+      # assinar os dois. Ele precisa continuar vindo de actions/upload-artifact v4
+      # ou mais novo, no job exe deste workflow.
       # - name: submit signing request
       #   uses: signpath/github-action-submit-signing-request@v3
       #   with:

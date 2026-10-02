@@ -51,6 +51,16 @@ by the scanner. The executable is packed without UPX. The bootloader
 exception allows distributing the resulting program under Apache-2.0.
 
 ---------------------------------------------------------------------------
+Inno Setup
+---------------------------------------------------------------------------
+Copyright Jordan Russell and Martijn Laan
+https://jrsoftware.org/isinfo.php
+
+Inno Setup is a build tool for the Windows installer. It is not imported by
+the scanner. The installer is packed without UPX. Inno Setup's license allows
+distributing the installer produced with it.
+
+---------------------------------------------------------------------------
 gitleaks
 ---------------------------------------------------------------------------
 Copyright Zachary Rice and contributors

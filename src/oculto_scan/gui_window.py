@@ -20,6 +20,7 @@ from oculto_scan.gui_help import (
     MENU_UPDATE,
     about_text,
     contact_text,
+    icon_paths,
     open_contact_mail,
     open_download_page,
     update_help_text,
@@ -44,6 +45,24 @@ _MEDIO = "#8a5a12"
 _INFO = "#1f5f6b"
 
 
+def apply_window_icon(root: tk.Tk) -> tk.PhotoImage | None:
+    """Set the window icon. A missing file keeps the usual Tk icon."""
+    png, ico = icon_paths()
+    image = None
+    if png.is_file():
+        try:
+            image = tk.PhotoImage(file=str(png))
+            root.iconphoto(True, image)
+        except tk.TclError:
+            image = None
+    if sys.platform == "win32" and ico.is_file():
+        try:
+            root.iconbitmap(default=str(ico))
+        except tk.TclError:
+            pass
+    return image
+
+
 def open_document(path: Path) -> None:
     """Open a local HTML file. This does not contact a website."""
     if sys.platform == "win32":
@@ -61,6 +80,7 @@ class App:
         root.title(f"oculto-scan {__version__}")
         root.configure(bg=_BG)
         root.minsize(720, 560)
+        self._icon_image = apply_window_icon(root)
         self._mode = tk.StringVar(value="scan")
         self._left = tk.StringVar()
         self._right = tk.StringVar()
