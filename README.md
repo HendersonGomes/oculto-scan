@@ -561,6 +561,12 @@ This program will not transfer any information to other networked systems unless
 
 O oculto-scan não tem cliente de rede. Ele lê a planilha que você escolhe e grava o relatório neste computador. defusedxml, tarja e oletools não enviam dados. O programa é uma verificação de privacidade e de vazamento de dados antes do envio. Não explora falhas e não altera o sistema.
 
+## Comunidade
+
+- Contribuir: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Conduta: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- Falha de segurança: [SECURITY.md](SECURITY.md). Não abra issue pública.
+
 ## Licença e créditos
 
 Apache-2.0. Veja `LICENSE` e `NOTICE`.

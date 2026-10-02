@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Reportar falha de segurança
+    url: https://github.com/HendersonGomes/oculto-scan/security/advisories/new
+    about: Use o reporte privado do GitHub. Não abra issue pública para falha de segurança.
