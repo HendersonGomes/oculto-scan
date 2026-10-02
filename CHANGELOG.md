@@ -1,5 +1,9 @@
 # Changelog
 
+## Documentação
+
+- A página principal do README ficou curta. O passo a passo, o uso completo, as limitações, a segurança da ferramenta, o roteiro e a política de assinatura de código estão em `docs/`. A versão do programa não mudou.
+
 ## 0.2.0
 
 - Modo `--limpar` grava uma cópia (`proposta-limpa.xlsx`, ou o caminho de `--saida`). O original não é alterado. Se a cópia já existe, o comando recusa, a menos que haja `--forcar`. A cópia nunca substitui o original.
