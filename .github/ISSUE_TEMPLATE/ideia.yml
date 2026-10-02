@@ -1,0 +1,28 @@
+name: Ideia
+description: Uma melhoria no programa ou na documentação.
+title: "Ideia: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideia de função ou de texto. Falha de segurança não entra aqui. Use o reporte privado indicado no SECURITY.md.
+  - type: textarea
+    id: problema
+    attributes:
+      label: Qual problema isso resolve
+    validations:
+      required: true
+  - type: textarea
+    id: ideia
+    attributes:
+      label: A ideia
+    validations:
+      required: true
+  - type: checkboxes
+    id: dados
+    attributes:
+      label: Dados
+      options:
+        - label: Não anexei planilha real nem dado de cliente.
+          required: true

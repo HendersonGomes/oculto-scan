@@ -1,0 +1,37 @@
+name: Falso positivo
+description: O relatório marcou algo que não é vazamento.
+title: "Falso positivo: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Conte o tipo do achado (aba oculta, fórmula, comentário, metadado) sem colar o valor real.
+        Não anexe a planilha do cliente. Se precisar ilustrar, use dado fictício e mascarado.
+  - type: textarea
+    id: achado
+    attributes:
+      label: O que foi marcado
+      description: Tipo, gravidade, aba ou célula. Sem o valor verdadeiro.
+    validations:
+      required: true
+  - type: textarea
+    id: porque
+    attributes:
+      label: Por que não é vazamento
+    validations:
+      required: true
+  - type: input
+    id: versao
+    attributes:
+      label: Versão
+      placeholder: "0.1.12"
+    validations:
+      required: true
+  - type: checkboxes
+    id: dados
+    attributes:
+      label: Dados
+      options:
+        - label: Não anexei planilha real nem dado de cliente.
+          required: true

@@ -1,0 +1,49 @@
+name: Bug
+description: O programa quebrou ou não concluiu o que deveria.
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Não anexe planilha real nem dado de cliente. Se precisar de exemplo, descreva com dado fictício e mascarado.
+        Falha de segurança não entra aqui. Use o reporte privado indicado no SECURITY.md.
+  - type: textarea
+    id: aconteceu
+    attributes:
+      label: O que aconteceu
+      description: O que você fez e o que o programa mostrou.
+    validations:
+      required: true
+  - type: textarea
+    id: esperava
+    attributes:
+      label: O que você esperava
+    validations:
+      required: true
+  - type: input
+    id: versao
+    attributes:
+      label: Versão
+      description: Saída de `oculto-scan --version` ou o nome da release baixada.
+      placeholder: "0.1.12"
+    validations:
+      required: true
+  - type: dropdown
+    id: como
+    attributes:
+      label: Como você abriu
+      options:
+        - Instalador (janela)
+        - oculto-scan.exe portátil
+        - oculto-scan-cli.exe
+        - Python (pip)
+    validations:
+      required: true
+  - type: checkboxes
+    id: dados
+    attributes:
+      label: Dados
+      options:
+        - label: Não anexei planilha real nem dado de cliente.
+          required: true
