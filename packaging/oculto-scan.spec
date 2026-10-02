@@ -12,8 +12,12 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 root = Path(SPEC).resolve().parents[1]
 entry = str(root / "packaging" / "entry.py")
 version_file = str(root / "build" / "file_version_info.txt")
+icon_file = str(root / "packaging" / "oculto-scan.ico")
 
-datas = []
+datas = [
+    (str(root / "src" / "oculto_scan" / "oculto-scan.png"), "oculto_scan"),
+    (str(root / "src" / "oculto_scan" / "oculto-scan.ico"), "oculto_scan"),
+]
 binaries = []
 hiddenimports = collect_submodules("oculto_scan")
 for package in (
@@ -67,4 +71,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     version=version_file,
+    icon=icon_file,
 )

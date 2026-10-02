@@ -90,7 +90,9 @@ def test_version_resource_uses_one_version_and_the_product_name():
     assert text.count("prodvers=(0, 1, 7, 0)") == 1
     assert text.count("0.1.7.0") == 2
     assert "StringStruct('ProductName', 'oculto-scan')" in text
-    assert "StringStruct('FileDescription', 'oculto-scan')" in text
+    assert "StringStruct('FileDescription', 'Verifica se a planilha pode vazar dados antes do envio.')" in text
+    assert "StringStruct('CompanyName', 'Henderson Gomes')" in text
+    assert "StringStruct('Comments', 'Apache-2.0')" in text
     assert "StringStruct('InternalName', 'oculto-scan')" in text
     assert "StringStruct('FileVersion', '0.1.7.0')" in text
     assert "StringStruct('ProductVersion', '0.1.7.0')" in text

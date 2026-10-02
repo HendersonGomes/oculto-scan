@@ -7,6 +7,8 @@ from oculto_scan.gui_help import DOWNLOAD_URL, REPO_URL, about_text, open_downlo
 def test_update_help_lists_both_paths():
     text = update_help_text()
     assert "não procura versão nova" in text
+    assert "instale por cima" in text
+    assert "oculto-scan-setup.exe" in text
     assert DOWNLOAD_URL in text
     assert "Get-FileHash -Algorithm SHA256" in text
     assert "git pull" in text

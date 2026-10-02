@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 DOWNLOAD_URL = "https://github.com/HendersonGomes/oculto-scan/releases/latest"
+SETUP_URL = f"{DOWNLOAD_URL}/download/oculto-scan-setup.exe"
+PORTABLE_URL = f"{DOWNLOAD_URL}/download/oculto-scan.exe"
 REPO_URL = "https://github.com/HendersonGomes/oculto-scan"
 
 MENU_HELP = "Ajuda"
@@ -14,15 +18,26 @@ CONTACT_EMAIL = "henderson.gomes11@gmail.com"
 MAILTO_URL = f"mailto:{CONTACT_EMAIL}"
 
 
+def icon_paths() -> tuple[Path, Path]:
+    """PNG for the window and ICO for Windows. Both ship inside the package."""
+    base = Path(__file__).resolve().parent
+    return base / "oculto-scan.png", base / "oculto-scan.ico"
+
+
 def update_help_text() -> str:
     """Short update steps. The program does not look for a new version by itself."""
     return (
         "O programa não procura versão nova sozinho.\n"
         "\n"
-        "Arquivo .exe\n"
-        "Baixe de novo e apague o arquivo antigo:\n"
-        f"{DOWNLOAD_URL}\n"
+        "Instalador\n"
+        "Baixe o setup novo e instale por cima. A versão antiga é substituída.\n"
+        f"{SETUP_URL}\n"
         "No PowerShell, na pasta do arquivo:\n"
+        "Get-FileHash -Algorithm SHA256 .\\oculto-scan-setup.exe\n"
+        "\n"
+        "Arquivo .exe portátil\n"
+        "Baixe de novo e apague o arquivo antigo:\n"
+        f"{PORTABLE_URL}\n"
         "Get-FileHash -Algorithm SHA256 .\\oculto-scan.exe\n"
         "\n"
         "Instalação pelo código, na pasta do clone:\n"
