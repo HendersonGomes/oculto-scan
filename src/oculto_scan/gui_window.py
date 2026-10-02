@@ -497,8 +497,7 @@ class App:
         box = (cx - radius, cy - radius, cx + radius, cy + radius)
         stroke = 22
         if grade == "limpo":
-            canvas.create_arc(*box, start=0, extent=180, style="arc", outline=GAUGE_TRACK, width=stroke)
-            canvas.create_arc(*box, start=135, extent=45, style="arc", outline=OK, width=stroke)
+            canvas.create_arc(*box, start=0, extent=180, style="arc", outline=OK, width=stroke)
         elif grade in _NEEDLE:
             canvas.create_arc(*box, start=120, extent=60, style="arc", outline=GAUGE_INFO, width=stroke)
             canvas.create_arc(*box, start=60, extent=60, style="arc", outline=GAUGE_MEDIO, width=stroke)
@@ -520,9 +519,9 @@ class App:
             canvas.create_oval(cx - 7, cy - 7, cx + 7, cy + 7, fill=GAUGE_CREAM, outline=GAUGE_CREAM)
         color = _WORD_COLOR.get(grade, GAUGE_MUTED)
         size = 16 if grade == "" else 32
-        canvas.create_text(cx, cy - 62, text=word, fill=color, font=(self._ui, size, "bold"))
+        canvas.create_text(cx, cy - 58, text=word, fill=color, font=(self._ui, size, "bold"))
         if detail:
-            canvas.create_text(cx, cy - 28, text=detail, fill=GAUGE_MUTED, font=(self._ui, 12))
+            canvas.create_text(cx, cy + 28, text=detail, fill=GAUGE_MUTED, font=(self._ui, 12))
 
     def _refresh(self) -> None:
         if self._busy:
