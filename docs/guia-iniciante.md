@@ -12,14 +12,22 @@ https://github.com/HendersonGomes/oculto-scan/releases/latest
 
 O botão no [README](../README.md) baixa esse instalador. O atalho do menu Iniciar abre só a janela. O `oculto-scan.exe` portátil faz o mesmo, sem console. O `oculto-scan-cli.exe`, na mesma página, é para o terminal. Os arquivos ainda **não são assinados**. A macro já vem dentro do programa. Nada é enviado para a internet.
 
-### Aviso do SmartScreen
+### Aviso do Windows no download
 
-O Windows pode dizer que o aplicativo não é reconhecido. Isso acontece porque a assinatura ainda não está ativa, não porque o arquivo foi alterado no caminho.
+O Windows pode avisar ou bloquear o download. Não é vírus. O programa ainda não tem assinatura digital de código (certificado pago). O SmartScreen e o navegador desconfiam de todo programa novo, sem assinatura e com poucos downloads; o aviso diminui conforme mais gente baixa e vai sumir quando a assinatura gratuita para open source (SignPath) for aprovada.
 
-1. Na janela azul, clique em **Mais informações**.
+No Edge ou no Chrome, se aparecer «não é baixado com frequência» ou «pode ser perigoso»:
+
+1. Clique nos três pontinhos ou na seta ao lado do aviso.
+2. Clique em **Manter**.
+3. Clique em **Manter assim mesmo**.
+
+Ao abrir o arquivo, na tela azul «O Windows protegeu o computador»:
+
+1. Clique em **Mais informações**.
 2. Clique em **Executar assim mesmo**.
 
-Se o botão não aparecer, confira o SHA-256 antes de seguir. A política de assinatura está em [code-signing-policy.md](code-signing-policy.md).
+O arquivo é compilado pela GitHub Actions na [página de releases](https://github.com/HendersonGomes/oculto-scan/releases). Confira o SHA-256 no passo abaixo. Se quiser uma segunda opinião, envie o arquivo ao [VirusTotal](https://www.virustotal.com/). Se o botão não aparecer, confira o hash antes de seguir. A política de assinatura está em [code-signing-policy.md](code-signing-policy.md).
 
 ### Conferir o SHA-256
 
