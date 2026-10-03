@@ -8,7 +8,14 @@ from pathlib import Path
 
 from oculto_scan.analyze import scan_path
 from oculto_scan.clean import write_clean_copy
-from oculto_scan.diff import IDENTICAL, DiffReport, compare_workbooks, render_diff_html
+from oculto_scan.diff import (
+    IDENTICAL,
+    DiffReport,
+    compare_workbooks,
+    display_change_cell,
+    render_diff_html,
+    shown_side,
+)
 from oculto_scan.models import RISK_LABEL, RISK_RANK, Finding, NetworkHint
 from oculto_scan.report import DISCLAIMER, render_html, sorted_findings, summary
 from oculto_scan.workbook import (
@@ -293,9 +300,11 @@ def result_text(session: Session, *, show: bool) -> str:
         if not report.changes and not report.headline:
             lines.append("Nenhuma mudança de conteúdo.")
         for change in report.changes:
-            where = " › ".join(piece for piece in (change.sheet, change.cell) if piece) or "—"
-            before = _value(change.before_masked, change.before_raw, show=show)
-            after = _value(change.after_masked, change.after_raw, show=show)
+            where = " › ".join(
+                piece for piece in (change.sheet, display_change_cell(change, show=show)) if piece
+            ) or "—"
+            before = shown_side(change, show=show, before=True)
+            after = shown_side(change, show=show, before=False)
             lines.append(f"{change.type_label} · {where}")
             lines.append(f"  {change.message}")
             lines.append(f"  antes: {before}")
@@ -455,6 +464,10 @@ _DIFF_COPY: dict[str, tuple[str, str]] = {
     "célula criada": ("Célula nova", "Apareceu conteúdo que não estava no arquivo original."),
     "célula apagada": ("Célula apagada", "Sumiu conteúdo que estava no arquivo original."),
     "fórmula alterada": ("Fórmula mudou", "A conta desta célula não é a mesma."),
+    "fórmula virou valor fixo": (
+        "Fórmula virou valor fixo",
+        "A conta foi trocada por um número. Em medição, a origem some.",
+    ),
     "valor em cache": ("Valor em cache mudou", "A fórmula é a mesma, mas o número guardado mudou."),
     "valor alterado": ("Valor mudou", "O número ou o texto desta célula mudou."),
     "coluna ocultada": ("Coluna foi escondida", "Uma coluna visível passou a ficar oculta."),
@@ -481,6 +494,7 @@ _DIFF_WITH_VALUES = {
     "célula criada",
     "célula apagada",
     "fórmula alterada",
+    "fórmula virou valor fixo",
     "valor em cache",
     "valor alterado",
     "comentário novo",
@@ -658,6 +672,10 @@ def _scan_card(item: Finding | NetworkHint, *, show: bool) -> WindowCard:
     label = item.type_label
     evidence = _snippet(item.evidence_masked, item.evidence_raw, show=show)
     title, template = _SCAN_COPY.get(label, (_plain_title(label), "Veja o detalhe no relatório HTML."))
+    if label == "linha oculta" and evidence:
+        where_cell = evidence
+    else:
+        where_cell = item.cell
     if label == "constante":
         if show and item.evidence_raw:
             action = f"A fórmula mostra {_clip(item.evidence_raw)}. Sozinho, não prova vazamento."
@@ -668,21 +686,26 @@ def _scan_card(item: Finding | NetworkHint, *, show: bool) -> WindowCard:
     else:
         action = _fill(template, sheet=item.sheet, evidence=evidence)
     severity = item.risk if item.risk in _SEVERITY_LABEL else "info"
-    return WindowCard(severity=severity, title=title, where=_place(item.sheet, item.cell, item.message), action=action)
+    return WindowCard(
+        severity=severity,
+        title=title,
+        where=_place(item.sheet, where_cell, item.message),
+        action=action,
+    )
 
 
 def _diff_card(change, *, show: bool) -> WindowCard:
     fallback = (_plain_title(change.type_label), "Veja o detalhe no relatório HTML.")
     title, action = _DIFF_COPY.get(change.type_label, fallback)
     if change.type_label in _DIFF_WITH_VALUES:
-        before = _snippet(change.before_masked, change.before_raw, show=show)
-        after = _snippet(change.after_masked, change.after_raw, show=show)
+        before = shown_side(change, show=show, before=True)
+        after = shown_side(change, show=show, before=False)
         if before and after and before != "—" and after != "—":
             action = f"{action} De {before} para {after}."
     severity = _DIFF_RISK.get(change.category, "info")
     return WindowCard(
         severity=severity,
         title=title,
-        where=_place(change.sheet, change.cell, change.message),
+        where=_place(change.sheet, display_change_cell(change, show=show), change.message),
         action=action,
     )

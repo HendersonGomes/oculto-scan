@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -304,15 +305,69 @@ def write_private_text(path: Path, text: str) -> None:
         pass
 
 
-def _format_stamp(when: datetime) -> str:
-    """Local wall time plus an explicit UTC offset, e.g. ``30/09/2026 21:55 (UTC-03:00)``."""
-    if when.tzinfo is None:
-        when = when.astimezone()
-    offset = when.utcoffset() or timedelta(0)
+_ISO_DATETIME = re.compile(
+    r"^(?P<stamp>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)(?P<tz>Z|[+-]\d{2}:\d{2})?$"
+)
+
+
+def _zone_label(offset: timedelta) -> str:
+    """Short offset such as ``UTC-3`` or ``UTC+5:30``. Hours have no leading zero."""
     total_minutes = int(offset.total_seconds() // 60)
     sign = "+" if total_minutes >= 0 else "-"
     hours, minutes = divmod(abs(total_minutes), 60)
-    return f"{when.strftime('%d/%m/%Y %H:%M')} (UTC{sign}{hours:02d}:{minutes:02d})"
+    if minutes:
+        return f"UTC{sign}{hours}:{minutes:02d}"
+    return f"UTC{sign}{hours}"
+
+
+def _format_stamp(when: datetime) -> str:
+    """Local wall time, e.g. ``30/09/2026 21:55 (horário local, UTC-3)``."""
+    if when.tzinfo is None:
+        when = when.astimezone()
+    offset = when.utcoffset() or timedelta(0)
+    return f"{when.strftime('%d/%m/%Y %H:%M')} (horário local, {_zone_label(offset)})"
+
+
+def format_stored_datetime(value: str) -> str | None:
+    """Turn an ISO instant into local ``dd/mm/yyyy HH:MM``. ``None`` if it is not a date."""
+    match = _ISO_DATETIME.fullmatch(value.strip())
+    if match is None:
+        return None
+    stamp = match.group("stamp").replace(" ", "T")
+    if stamp.count(":") == 1:
+        stamp += ":00"
+    zone = match.group("tz") or "Z"
+    if zone == "Z":
+        zone = "+00:00"
+    parsed = datetime.fromisoformat(stamp + zone)
+    return parsed.astimezone().strftime("%d/%m/%Y %H:%M")
+
+
+def format_pt_number(value: str) -> str | None:
+    """Brazilian number. Keeps only the decimal places that are already in the text."""
+    text = value.strip()
+    negative = text.startswith("-")
+    body = text[1:] if negative else text
+    if not re.fullmatch(r"\d+(?:\.\d+)?", body):
+        return None
+    whole, _, fraction = body.partition(".")
+    fraction = fraction.rstrip("0")
+    grouped = f"{int(whole):,}".replace(",", ".")
+    shown = grouped if not fraction else f"{grouped},{fraction}"
+    return f"-{shown}" if negative else shown
+
+
+def present_report_value(value: str) -> str:
+    """Pretty form of a revealed diff value. Formulas and other text stay as stored."""
+    if not value or value == "—":
+        return value
+    dated = format_stored_datetime(value)
+    if dated is not None:
+        return dated
+    numbered = format_pt_number(value)
+    if numbered is not None:
+        return numbered
+    return value
 
 
 _REVEALED_BANNER = (

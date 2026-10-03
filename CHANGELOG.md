@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5
+
+- Datas do relatório e de Criado em, Modificado em e Última impressão saem no horário do computador, como 03/10/2026 14:35. O cabeçalho diz o fuso, por exemplo «horário local, UTC-3». O JSON guarda o instante original.
+- Números no antes/depois saem no formato brasileiro, sem criar casa decimal (48,5 e 7,8; 5.000). O JSON não usa esse formato.
+- Fórmula trocada por número fixo vira uma linha só. Linha oculta mostra o texto da linha, mascarado quando os valores não estão revelados. As frases do comparador e do comentário passam a concordar.
+
 ## 0.2.4
 
 - O relatório mostra a pasta onde o Excel salvou a planilha, e também HyperlinkBase, modelo, conexão, consulta e fonte externa de tabela dinâmica. Usuário do Windows e nome do OneDrive ou da empresa saem mascarados. O valor real só aparece com «Mostrar valores reais».

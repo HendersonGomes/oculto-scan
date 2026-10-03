@@ -26,6 +26,8 @@ from oculto_scan.report import (
     _format_stamp,
     ensure_stdio,
     fill_template,
+    format_stored_datetime,
+    present_report_value,
     stdout_wants_color,
     write_private_text,
 )
@@ -45,6 +47,31 @@ METADATA_ONLY = "salvo de novo sem alteração de conteúdo detectada"
 REVEALED_BANNER = _REVEALED_BANNER
 
 _STATE = {"visible": "visível", "hidden": "oculta", "veryHidden": "muito oculta"}
+_COMMENT_NEW = {
+    "nota": "Há uma nota nova nesta célula.",
+    "thread": "Há um comentário novo nesta célula.",
+}
+_COMMENT_REMOVED = {
+    "nota": "A nota foi removida desta célula.",
+    "thread": "O comentário foi removido desta célula.",
+}
+_COMMENT_EDITED = {
+    "nota": "A nota desta célula foi alterada.",
+    "thread": "O comentário desta célula foi alterado.",
+}
+_META_MESSAGE = {
+    "creator": "O criador do arquivo mudou. Esse nome pode ser editado.",
+    "lastModifiedBy": "Quem salvou por último mudou. Esse nome pode ser editado.",
+    "created": "A data de criação mudou. Essa data pode ser editada.",
+    "modified": "A data de modificação mudou. Essa data pode ser editada.",
+    "lastPrinted": "A data da última impressão mudou.",
+    "revision": "O número de revisão mudou.",
+    "Application": "O aplicativo que gravou o arquivo mudou.",
+    "AppVersion": "A versão do aplicativo mudou.",
+    "Company": "A empresa do arquivo mudou. Esse nome pode ser editado.",
+    "Manager": "O gerente do arquivo mudou. Esse nome pode ser editado.",
+}
+_ROW_LABELS = {"linha ocultada", "linha reexibida"}
 _META_FIELDS = (
     ("creator", "Criador"),
     ("lastModifiedBy", "Salvo por"),
@@ -275,7 +302,28 @@ def _compare_cells(old: Sheet, new: Sheet, changes: list[DiffChange]) -> None:
             )
             continue
         assert left is not None and right is not None
-        if (left.formula or "") != (right.formula or ""):
+        left_formula = left.formula or ""
+        right_formula = right.formula or ""
+        left_value = str(left.value or "")
+        right_value = str(right.value or "")
+        if left_formula and not right_formula and _is_number(right_value):
+            _add(
+                changes,
+                sheet=new.name,
+                cell=ref,
+                type_label="fórmula virou valor fixo",
+                category="conteudo",
+                message=(
+                    "A fórmula foi trocada por um número fixo. "
+                    "Em medição, a conta deixa de aparecer."
+                ),
+                before_raw=left_formula,
+                after_raw=right_value,
+                before_masked=_mask_formula_or_blank(left_formula),
+                after_masked=_mask_scalar(right_value),
+            )
+            continue
+        if left_formula != right_formula:
             _add(
                 changes,
                 sheet=new.name,
@@ -283,13 +331,11 @@ def _compare_cells(old: Sheet, new: Sheet, changes: list[DiffChange]) -> None:
                 type_label="fórmula alterada",
                 category="conteudo",
                 message="A fórmula da célula mudou.",
-                before_raw=left.formula or "",
-                after_raw=right.formula or "",
-                before_masked=_mask_formula_or_blank(left.formula),
-                after_masked=_mask_formula_or_blank(right.formula),
+                before_raw=left_formula,
+                after_raw=right_formula,
+                before_masked=_mask_formula_or_blank(left_formula),
+                after_masked=_mask_formula_or_blank(right_formula),
             )
-        left_value = str(left.value or "")
-        right_value = str(right.value or "")
         if left_value != right_value:
             same_formula = (left.formula or "") == (right.formula or "") and bool(left.formula or right.formula)
             _add(
@@ -309,35 +355,83 @@ def _compare_cells(old: Sheet, new: Sheet, changes: list[DiffChange]) -> None:
             )
 
 
+def _axis_label(start: int, end: int, *, columns: bool) -> str:
+    if columns:
+        if start == end:
+            return index_to_col(start)
+        return f"{index_to_col(start)}:{index_to_col(end)}"
+    return format_group(start, end)
+
+
+def _row_span_caption(old: Sheet, new: Sheet, start: int, end: int) -> str:
+    for row in range(start, end + 1):
+        caption = new.row_caption(row) or old.row_caption(row)
+        if caption:
+            return caption
+    return ""
+
+
+def _add_hidden(
+    changes: list[DiffChange],
+    *,
+    old: Sheet,
+    new: Sheet,
+    start: int,
+    end: int,
+    columns: bool,
+    type_label: str,
+    message: str,
+) -> None:
+    label = _axis_label(start, end, columns=columns)
+    caption = "" if columns else _row_span_caption(old, new, start, end)
+    _add(
+        changes,
+        sheet=new.name,
+        cell=label,
+        type_label=type_label,
+        category="estrutura",
+        message=message,
+        after_raw=caption,
+        after_masked=mask_text(caption) if caption else None,
+    )
+
+
 def _compare_hidden(old: Sheet, new: Sheet, changes: list[DiffChange], *, columns: bool) -> None:
     before = old.hidden_cols if columns else old.hidden_rows
     after = new.hidden_cols if columns else new.hidden_rows
     hidden_now = after - before
     shown_again = before - after
-    noun = "Coluna" if columns else "Linha"
+    hidden_message = (
+        "Coluna que estava visível passou a ficar oculta."
+        if columns
+        else "Linha que estava visível passou a ficar oculta."
+    )
+    shown_message = (
+        "Coluna que estava oculta voltou a aparecer."
+        if columns
+        else "Linha que estava oculta voltou a aparecer."
+    )
     for start, end in contiguous_groups(hidden_now):
-        label = f"{index_to_col(start)}:{index_to_col(end)}" if columns else format_group(start, end)
-        if columns and start == end:
-            label = index_to_col(start)
-        _add(
+        _add_hidden(
             changes,
-            sheet=new.name,
-            cell=label,
+            old=old,
+            new=new,
+            start=start,
+            end=end,
+            columns=columns,
             type_label="coluna ocultada" if columns else "linha ocultada",
-            category="estrutura",
-            message=f"{noun} que estava visível passou a ficar oculta.",
+            message=hidden_message,
         )
     for start, end in contiguous_groups(shown_again):
-        label = f"{index_to_col(start)}:{index_to_col(end)}" if columns else format_group(start, end)
-        if columns and start == end:
-            label = index_to_col(start)
-        _add(
+        _add_hidden(
             changes,
-            sheet=new.name,
-            cell=label,
+            old=old,
+            new=new,
+            start=start,
+            end=end,
+            columns=columns,
             type_label="coluna reexibida" if columns else "linha reexibida",
-            category="estrutura",
-            message=f"{noun} que estava oculta voltou a aparecer.",
+            message=shown_message,
         )
 
 
@@ -350,7 +444,7 @@ def _compare_comments(old: Sheet, new: Sheet, changes: list[DiffChange]) -> None
     for key in sorted(set(before) | set(after)):
         left = before.get(key)
         right = after.get(key)
-        kind = "comentário em thread" if key[1] == "thread" else "nota"
+        kind = key[1] if key[1] in _COMMENT_NEW else "nota"
         if left is None and right is not None:
             masked, _raw = _comment_payload(right, show=False)
             _, raw_full = _comment_payload(right, show=True)
@@ -360,7 +454,7 @@ def _compare_comments(old: Sheet, new: Sheet, changes: list[DiffChange]) -> None
                 cell=key[0],
                 type_label="comentário novo",
                 category="conteudo",
-                message=f"Há {kind} novo nesta célula.",
+                message=_COMMENT_NEW[kind],
                 after_raw=raw_full,
                 after_masked=masked,
             )
@@ -373,7 +467,7 @@ def _compare_comments(old: Sheet, new: Sheet, changes: list[DiffChange]) -> None
                 cell=key[0],
                 type_label="comentário removido",
                 category="conteudo",
-                message=f"{kind.capitalize()} removido desta célula.",
+                message=_COMMENT_REMOVED[kind],
                 before_raw=raw_full,
                 before_masked=masked,
             )
@@ -390,7 +484,7 @@ def _compare_comments(old: Sheet, new: Sheet, changes: list[DiffChange]) -> None
                 cell=key[0],
                 type_label="comentário editado",
                 category="conteudo",
-                message=f"{kind.capitalize()} alterado nesta célula.",
+                message=_COMMENT_EDITED[kind],
                 before_raw=before_raw,
                 after_raw=after_raw,
                 before_masked=before_masked,
@@ -601,7 +695,7 @@ def _compare_metadata(
                 cell=key,
                 type_label="metadado",
                 category="metadado",
-                message=f"{label} mudou. É quem salvou por último, ou uma propriedade do arquivo, e pode ser editado.",
+                message=_META_MESSAGE.get(key, "Uma propriedade do arquivo mudou. Ela pode ser editada."),
                 before_raw=before,
                 after_raw=after,
             )
@@ -711,9 +805,22 @@ def compare_workbooks(
     )
 
 
-def _side(change: DiffChange, *, show: bool, before: bool) -> str:
+def display_change_cell(change: DiffChange, *, show: bool) -> str:
+    """Where the change sits. A hidden row includes its text, masked unless revealed."""
+    if change.type_label not in _ROW_LABELS:
+        return change.cell or "—"
+    caption = change.after_raw if show else change.after_masked
+    if not caption or caption == "—":
+        return change.cell or "—"
+    return f"Linha {change.cell} · {caption}"
+
+
+def shown_side(change: DiffChange, *, show: bool, before: bool) -> str:
+    if change.type_label in _ROW_LABELS or change.type_label in {"coluna ocultada", "coluna reexibida"}:
+        return "—"
+    raw = change.before_raw if before else change.after_raw
     if show:
-        return change.before_raw if before else change.after_raw
+        return present_report_value(raw)
     return change.before_masked if before else change.after_masked
 
 
@@ -728,11 +835,11 @@ def render_diff_text(report: DiffReport, *, show: bool, color: bool) -> str:
     for change in report.changes:
         label = _paint(change.type_label, _CATEGORY_COLOR.get(change.category, ""), color=color)
         sheet = change.sheet or "—"
-        cell = change.cell or "—"
+        cell = display_change_cell(change, show=show)
         lines.append(f"  {sheet} › {cell} › {label}")
         lines.append(f"    {change.message}")
-        lines.append(f"    antes: {_side(change, show=show, before=True)}")
-        lines.append(f"    depois: {_side(change, show=show, before=False)}")
+        lines.append(f"    antes: {shown_side(change, show=show, before=True)}")
+        lines.append(f"    depois: {shown_side(change, show=show, before=False)}")
     counts = _summary(report)
     lines.append("---")
     lines.append(
@@ -759,6 +866,13 @@ def _paint(text: str, code: str, *, color: bool) -> str:
     return f"{code}{text}{_RESET}"
 
 
+def _json_value(raw: str, masked: str) -> str:
+    """JSON keeps an ISO instant as stored. Display formatting stays out of JSON."""
+    if raw and raw != "—" and format_stored_datetime(raw) is not None:
+        return raw
+    return masked
+
+
 def render_diff_json(report: DiffReport) -> str:
     counts = _summary(report)
     payload = {
@@ -776,8 +890,8 @@ def render_diff_json(report: DiffReport) -> str:
             {
                 "key": row.key,
                 "label": row.label,
-                "before": row.before_masked,
-                "after": row.after_masked,
+                "before": _json_value(row.before_raw, row.before_masked),
+                "after": _json_value(row.after_raw, row.after_masked),
                 "changed": row.changed,
             }
             for row in report.metadata
@@ -789,8 +903,8 @@ def render_diff_json(report: DiffReport) -> str:
                 "type": change.type_label,
                 "category": change.category,
                 "message": change.message,
-                "before": change.before_masked,
-                "after": change.after_masked,
+                "before": _json_value(change.before_raw, change.before_masked),
+                "after": _json_value(change.after_raw, change.after_masked),
             }
             for change in report.changes
         ],
@@ -811,17 +925,17 @@ def render_diff_html(report: DiffReport, *, show: bool, generated_at: datetime |
         rows.append(
             f'<tr class="cat-{_esc(change.category)}">'
             f"<td>{_esc(change.sheet or '—')}</td>"
-            f"<td>{_esc(change.cell or '—')}</td>"
+            f"<td>{_esc(display_change_cell(change, show=show))}</td>"
             f"<td>{_esc(change.type_label)}</td>"
-            f'<td class="value">{_esc(_side(change, show=show, before=True))}</td>'
-            f'<td class="value">{_esc(_side(change, show=show, before=False))}</td>'
+            f'<td class="value">{_esc(shown_side(change, show=show, before=True))}</td>'
+            f'<td class="value">{_esc(shown_side(change, show=show, before=False))}</td>'
             f"<td>{_esc(change.message)}</td>"
             "</tr>"
         )
     meta_rows: list[str] = []
     for row in report.metadata:
-        before = row.before_raw if show else row.before_masked
-        after = row.after_raw if show else row.after_masked
+        before = present_report_value(row.before_raw) if show else row.before_masked
+        after = present_report_value(row.after_raw) if show else row.after_masked
         mark = " mudou" if row.changed else ""
         meta_rows.append(
             f"<tr class=\"{'changed' if row.changed else 'same'}\">"
