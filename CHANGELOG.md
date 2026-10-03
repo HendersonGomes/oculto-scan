@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+- Planilha grande deixa de travar a janela. A aba é lida em fluxo, sem montar o XML inteiro na memória, e a busca de cabeçalho não percorre a aba de novo para cada célula.
+- A janela mostra no máximo 200 cartões, os mais graves, e avisa quantos achados ficaram só no relatório. O texto completo continua no HTML.
+- Durante a análise aparece «Lendo aba X de Y». O botão Cancelar interrompe. Arquivo acima do limite continua recusado, e a janela mostra a mensagem do `--max-mb`.
+
 ## 0.2.1
 
 - A janela deixa de travar ao maximizar durante a comparação de duas planilhas. A análise roda fora da thread da janela. Redimensionar espera um instante e só ajusta a largura do texto, sem recriar os cartões. Enquanto analisa, a janela mostra «Analisando...» e os botões ficam desligados.

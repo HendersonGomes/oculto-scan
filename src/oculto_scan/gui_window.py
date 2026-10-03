@@ -42,13 +42,13 @@ from oculto_scan.gui_logic import (
     RESIZE_DEBOUNCE_MS,
     ResizeCoalescer,
     Session,
+    cards_for_window,
     clean_button_enabled,
     finish_clean_session,
     result_html,
     risk_grade,
     run_scan_job,
     suggested_html_name,
-    window_cards,
 )
 from oculto_scan.gui_theme import (
     AMBER,
@@ -68,6 +68,7 @@ from oculto_scan.gui_theme import (
     UI_FONTS,
 )
 from oculto_scan.report import write_private_text
+from oculto_scan.workbook import ScanCancelled
 
 _BUSY = "Analisando..."
 _OFFLINE = "Nada é enviado para a internet. O arquivo fica neste computador."
@@ -143,6 +144,8 @@ class App:
         self.session = Session()
         self.saved: Path | None = None
         self._busy = False
+        self._cancel_flag = threading.Event()
+        self._card_gen = 0
         self._results: queue.Queue = queue.Queue()
         self._pick_buttons: list[ttk.Button] = []
         self._wrap_labels: list[tk.Label] = []
@@ -374,6 +377,9 @@ class App:
         actions.pack(fill="x", pady=(10, 0))
         self._go = ttk.Button(actions, text="Escanear", style="Accent.TButton", command=self._run)
         self._go.pack(side="left")
+        self._cancel_btn = ttk.Button(actions, text="Cancelar", command=self._cancel)
+        self._cancel_btn.pack(side="left", padx=(8, 0))
+        self._cancel_btn.state(["disabled"])
         self._save_btn = ttk.Button(actions, text="Salvar relatório HTML", command=self._save)
         self._save_btn.pack(side="left", padx=8)
         self._open_btn = ttk.Button(actions, text="Abrir relatório HTML", command=self._open)
@@ -531,12 +537,25 @@ class App:
         mode = self._mode.get()
         left = self._left.get()
         right = self._right.get()
+        self._cancel_flag.clear()
         self._begin_busy(_BUSY)
         threading.Thread(target=self._worker_run, args=(mode, left, right), daemon=True).start()
 
+    def _cancel(self) -> None:
+        if not self._busy:
+            return
+        self._cancel_flag.set()
+        self._status.set("Cancelando...")
+
     def _worker_run(self, mode: str, left: str, right: str) -> None:
+        def progress(message: str) -> None:
+            self._results.put(("progress", message))
+
+        def cancel() -> bool:
+            return self._cancel_flag.is_set()
+
         try:
-            session = run_scan_job(mode, left, right)
+            session = run_scan_job(mode, left, right, progress=progress, cancel=cancel)
         except Exception:
             session = Session(error="Não foi possível concluir a análise.")
         self._results.put(("run", session))
@@ -557,6 +576,7 @@ class App:
         state = ["!disabled"] if enabled else ["disabled"]
         for widget in (self._go, self._save_btn, self._open_btn, self._clean_btn, *self._pick_buttons, *self._radios):
             widget.state(state)
+        self._cancel_btn.state(["disabled"] if enabled else ["!disabled"])
 
     def _poll_results(self) -> None:
         try:
@@ -564,18 +584,29 @@ class App:
                 return
         except tk.TclError:
             return
-        try:
-            kind, payload = self._results.get_nowait()
-        except queue.Empty:
+        finished = None
+        while True:
+            try:
+                kind, payload = self._results.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "progress":
+                self._status.set(str(payload))
+                continue
+            finished = (kind, payload)
+            break
+        if finished is None:
             if self._busy:
                 try:
                     self.root.after(30, self._poll_results)
                 except tk.TclError:
                     return
             return
+        kind, payload = finished
         self._progress.stop()
         self._progress.pack_forget()
         self._busy = False
+        self._cancel_flag.clear()
         self._set_actions_enabled(True)
         if kind == "run":
             self.session = payload
@@ -645,9 +676,9 @@ class App:
             self._clean_btn.state(["!disabled"])
         else:
             self._clean_btn.state(["disabled"])
-        cards = window_cards(self.session, show=bool(self._show.get()))
-        if cards:
-            self._show_cards(cards)
+        cards, extra = cards_for_window(self.session, show=bool(self._show.get()))
+        if cards or extra:
+            self._show_cards(cards, extra)
         elif grade == "erro":
             self._show_note(self.session.error)
         elif grade == "limpo":
@@ -660,6 +691,7 @@ class App:
             self._layout_cards(width)
 
     def _clear_cards(self) -> None:
+        self._card_gen += 1
         self._wrap_labels.clear()
         for child in self._card_frame.winfo_children():
             child.destroy()
@@ -685,9 +717,48 @@ class App:
         )
         label.pack(anchor="w", padx=8, pady=8)
 
-    def _show_cards(self, cards) -> None:
+    def _show_cards(self, cards, extra: int = 0) -> None:
         self._clear_cards()
         self._cards_dirty = True
+        pending = list(cards)
+        generation = self._card_gen
+        if len(pending) <= 40:
+            self._append_cards(pending)
+            if extra:
+                self._append_more(extra)
+            return
+        self._pump_cards(pending, extra, generation)
+
+    def _pump_cards(self, pending: list, extra: int, generation: int) -> None:
+        if generation != self._card_gen:
+            return
+        batch = pending[:40]
+        rest = pending[40:]
+        self._append_cards(batch)
+        if rest:
+            try:
+                self.root.after(1, lambda: self._pump_cards(rest, extra, generation))
+            except tk.TclError:
+                return
+            return
+        if extra:
+            self._append_more(extra)
+
+    def _append_more(self, extra: int) -> None:
+        self._remember_wrap(
+            tk.Label(
+                self._card_frame,
+                text=f"Mais {extra} achados no relatório.",
+                bg=GAUGE_BG,
+                fg=GAUGE_MUTED,
+                font=(self._ui, 13),
+                anchor="w",
+                justify="left",
+                wraplength=760,
+            )
+        ).pack(anchor="w", padx=8, pady=8)
+
+    def _append_cards(self, cards) -> None:
         width = max(self._cards_canvas.winfo_width() - 48, 240)
         for card in cards:
             color = _CARD_COLOR.get(card.severity, GAUGE_INFO)
@@ -752,14 +823,27 @@ class App:
         ).start()
 
     def _worker_clean(self, source: str, hidden: bool, macros: bool, force: bool) -> None:
+        def progress(message: str) -> None:
+            self._results.put(("progress", message))
+
+        def cancel() -> bool:
+            return self._cancel_flag.is_set()
+
         try:
             dest, session, note = finish_clean_session(
                 Path(source),
                 remove_hidden=hidden,
                 remove_macros=macros,
                 force=force,
+                progress=progress,
+                cancel=cancel,
             )
+            if session.error == "Análise cancelada.":
+                self._results.put(("clean-err", "Análise cancelada. O original não foi alterado."))
+                return
             self._results.put(("clean-ok", (dest, session, note)))
+        except ScanCancelled:
+            self._results.put(("clean-err", "Análise cancelada. O original não foi alterado."))
         except CleanError as exc:
             self._results.put(("clean-err", str(exc)))
         except OSError as exc:

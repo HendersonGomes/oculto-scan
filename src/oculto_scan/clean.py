@@ -176,7 +176,7 @@ def clean_bytes(
 ) -> CleanResult:
     """Return cleaned package bytes. Does not touch the filesystem."""
     parts = _read_parts(data, max_mb=max_mb)
-    workbook = load_workbook_bytes(data, nome, max_mb=max_mb)
+    workbook = load_workbook_bytes(data, nome, max_mb=max_mb, keep_cells=False)
     entries = _sheet_entries(parts)
     if not entries:
         raise WorkbookParseError("a pasta não tem abas")

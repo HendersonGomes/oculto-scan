@@ -101,11 +101,11 @@ def test_compare_stays_responsive_when_the_window_is_maximized(tmp_path, monkeyp
     holder: dict[str, int] = {}
     real = logic.compare_files
 
-    def slow(original, received):
+    def slow(original, received, **_kwargs):
         holder["thread"] = threading.get_ident()
         started.set()
         time.sleep(0.35)
-        return real(original, received)
+        return real(original, received, **_kwargs)
 
     monkeypatch.setattr(logic, "compare_files", slow)
     root = tk.Tk()
