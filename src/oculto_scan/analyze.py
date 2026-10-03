@@ -420,11 +420,19 @@ def _structure(workbook: Workbook, file_label: str, *, with_concealment: bool = 
                 )
             )
         for start, end in contiguous_groups(sheet.hidden_rows) + list(sheet.hidden_row_spans):
+            label = format_group(start, end)
+            caption = ""
+            for row in range(start, end + 1):
+                caption = sheet.row_caption(row)
+                if caption:
+                    break
+            evidence_raw = f"Linha {label} · {caption}" if caption else None
+            evidence_masked = f"Linha {label} · {mask_text(caption)}" if caption else None
             findings.append(
                 Finding(
                     file=file_label,
                     sheet=sheet.name,
-                    cell=format_group(start, end),
+                    cell=label,
                     rule="linha-oculta",
                     type_label="linha oculta",
                     risk="medio",
@@ -432,6 +440,8 @@ def _structure(workbook: Workbook, file_label: str, *, with_concealment: bool = 
                         "Linha ou faixa de linhas oculta. Pode guardar quantidade, "
                         "custo unitário ou margem fora da área impressa."
                     ),
+                    evidence_masked=evidence_masked,
+                    evidence_raw=evidence_raw,
                 )
             )
         for start, end in contiguous_groups(sheet.hidden_cols) + list(sheet.hidden_col_spans):
@@ -450,7 +460,10 @@ def _structure(workbook: Workbook, file_label: str, *, with_concealment: bool = 
                 )
             )
         for comment in sheet.comments:
-            kind = "nota antiga" if comment.kind == "nota" else "comentário em thread"
+            if comment.kind == "nota":
+                lead = "Há uma nota antiga nesta célula."
+            else:
+                lead = "Há um comentário em thread nesta célula."
             author = _author_label(comment.author)
             author_bit = f" Autor: {author}." if author else ""
             findings.append(
@@ -462,7 +475,7 @@ def _structure(workbook: Workbook, file_label: str, *, with_concealment: bool = 
                     type_label="comentário",
                     risk="medio",
                     message=(
-                        f"Há {kind} nesta célula.{author_bit} "
+                        f"{lead}{author_bit} "
                         "Comentário interno muitas vezes descreve margem, premissa ou ressalva "
                         "que não está na célula visível."
                     ),

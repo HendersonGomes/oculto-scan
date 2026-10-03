@@ -8,6 +8,13 @@ RISK_RANK = {"info": 1, "medio": 2, "alto": 3}
 RISK_LABEL = {"alto": "alto", "medio": "médio", "info": "info"}
 
 
+def _plain_number(value: str) -> bool:
+    text = value.strip().lstrip("-")
+    if not text or text.count(".") + text.count(",") > 1:
+        return False
+    return text.replace(".", "", 1).replace(",", "", 1).isdigit()
+
+
 @dataclass(frozen=True)
 class Finding:
     """One leak signal.
@@ -86,6 +93,20 @@ class Sheet:
         if col in self.hidden_cols:
             return True
         return any(start <= col <= end for start, end in self.hidden_col_spans)
+
+    def row_caption(self, row: int) -> str:
+        """Longest text on a row, skipping formulas and plain numbers."""
+        texts: list[str] = []
+        for cell in self.cells:
+            if cell.row != row or cell.formula:
+                continue
+            value = str(cell.value or "").strip()
+            if not value or _plain_number(value):
+                continue
+            texts.append(value)
+        if not texts:
+            return ""
+        return max(texts, key=len)
 
 
 @dataclass(frozen=True)

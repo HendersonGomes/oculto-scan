@@ -7,9 +7,9 @@ Dois arquivos inventados para ver o modo Comparar. Não há obra, pessoa nem pre
 
 Na planilha devolvida, de propósito:
 
-- o concreto fck 25 passou de 48,50 para 42,00 m³, com uma nota do fiscal na quantidade
+- o concreto fck 25 passou de 48,5 para 42 m³, com uma nota do fiscal na quantidade
 - o preço unitário do aço CA-50 mudou
-- a fórmula do Total da forma virou o número fixo 5000
+- a fórmula do Total da forma virou o número fixo 5.000
 - a linha do lastro de concreto magro foi ocultada
 
 Na pasta destes arquivos:

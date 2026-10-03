@@ -201,7 +201,7 @@ def test_html_show_reveals_values_banner_and_escapes_script(tmp_path, monkeypatc
 def test_html_stamp_uses_local_offset():
     when = datetime(2026, 9, 30, 21, 55, tzinfo=timezone(timedelta(hours=-3)))
     page = render_html([], ignored=0, scanned=0, files=[], generated_at=when)
-    assert "30/09/2026 21:55 (UTC-03:00)" in page
+    assert "30/09/2026 21:55 (horário local, UTC-3)" in page
     assert "+0000" not in page
 
 
