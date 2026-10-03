@@ -16,6 +16,16 @@
   <a href="https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan-setup.exe"><img src="https://img.shields.io/badge/Baixar-oculto--scan--setup.exe-E6A317?style=for-the-badge&logo=windows&logoColor=0E2433" alt="Baixar oculto-scan-setup.exe"></a>
 </p>
 
+<a id="aviso-windows"></a>
+
+> [!IMPORTANT]
+> **O Windows pode avisar ou bloquear o download. Não é vírus.**
+> O programa ainda não tem assinatura digital de código (certificado pago). O Windows SmartScreen e o navegador desconfiam de todo programa novo, sem assinatura e com poucos downloads; o aviso diminui conforme mais gente baixa e vai sumir quando a assinatura gratuita para open source (SignPath) for aprovada.
+>
+> No Edge ou no Chrome, se aparecer «não é baixado com frequência» ou «pode ser perigoso», clique nos três pontinhos ou na seta › **Manter** › **Manter assim mesmo**. Ao abrir, na tela azul «O Windows protegeu o computador», clique em **Mais informações** › **Executar assim mesmo**.
+>
+> Como ter certeza: o código é aberto e o arquivo é compilado pela GitHub Actions na [página de releases](https://github.com/HendersonGomes/oculto-scan/releases). Confira o SHA-256 com `Get-FileHash` no [guia para iniciantes](docs/guia-iniciante.md#conferir-o-sha-256). Se quiser, envie o arquivo ao [VirusTotal](https://www.virustotal.com/).
+
 <p align="center"><strong>100% offline · grátis · open source</strong></p>
 
 <p align="center">Quem prefere não instalar baixa o <a href="https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan.exe">oculto-scan.exe portátil</a>. Ele abre só a janela, sem a janela preta do terminal. O <a href="https://github.com/HendersonGomes/oculto-scan/releases/latest/download/oculto-scan-cli.exe">oculto-scan-cli.exe</a> é o mesmo programa na linha de comando.</p>
@@ -24,9 +34,22 @@
   <img src="docs/img/janela.png" alt="Janela do oculto-scan v0.2 com o medidor de risco" width="760">
 </p>
 
+## Para que serve
+
+- Enviou a planilha e ficou na dúvida do que foi alterado?
+- Mandou um boletim de medição e não sabe o que o fiscal ou a empresa mudou?
+- Vai enviar uma proposta sigilosa de licitação?
+- Tem CPF, nome ou CNPJ que não deveria aparecer (LGPD)?
+
+**Comparar dois arquivos** (`oculto-scan diff`) mostra valor, fórmula, estrutura (aba, linha, coluna ou vínculo) e metadado que mudaram, com a aba e a célula, e quem salvou por último. A análise aponta o que pode vazar, como CPF, CNPJ e autor. A cópia limpa tira comentário, autor e vínculo antes do envio; CPF dentro da célula fica para você revisar.
+
+Isso ajuda a encontrar dado pessoal. Não é conformidade com a LGPD e não substitui revisão humana nem assessoria jurídica. Quem salvou é só o último que gravou o arquivo: esse nome pode ser editado, e abrir sem salvar não deixa rastro. O detalhe está em [Comparar o que voltou](docs/uso.md#comparar-o-que-voltou-diff).
+
 Lê a planilha de proposta, medição, orçamento ou laudo (`.xlsx` e `.xlsm`) **antes** do envio e junta, num lugar só, o que um engenheiro olharia na pasta.
 
 **nenhum achado não significa arquivo limpo.**
+
+**Novidades da v0.2:** cópia limpa, pasta onde a planilha foi salva (com aviso de mesmo usuário ao comparar), planilhas pesadas mais rápidas com progresso e cancelar, e relatório agrupado e leve. Veja o [CHANGELOG](CHANGELOG.md) e as [Releases](https://github.com/HendersonGomes/oculto-scan/releases).
 
 ## O que ele encontra
 
@@ -65,7 +88,7 @@ Regras: [Limpar uma cópia](docs/uso.md#limpar-uma-copia).
 2. **Abra** o instalador. O atalho do menu Iniciar abre a janela.
 3. **Escolha** a planilha e clique em **Escanear**.
 
-Se o SmartScreen disser que o aplicativo não é reconhecido, clique em **Mais informações** e depois em **Executar assim mesmo**: a assinatura ainda não está ativa. Para atualizar, baixe o setup novo e instale por cima.
+O aviso do Windows no download está no [bloco do topo](#aviso-windows). Para atualizar, baixe o setup novo e instale por cima.
 
 Hash, desinstalar e o caminho sem terminal: [Guia para iniciantes](docs/guia-iniciante.md).
 
