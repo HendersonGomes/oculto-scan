@@ -29,6 +29,7 @@ from oculto_scan.report import (
     stdout_wants_color,
     write_private_text,
 )
+from oculto_scan.savepath import evidence_text, primary_trace, root_key
 from oculto_scan.workbook import WorkbookParseError, load_workbook, read_document_properties
 from oculto_scan.zipsafe import FileTooLargeError, ZipSafetyError
 
@@ -524,6 +525,49 @@ def _compare_links(original: Workbook, received: Workbook, changes: list[DiffCha
         )
 
 
+def _compare_save_folders(original: Workbook, received: Workbook, changes: list[DiffChange]) -> None:
+    left = primary_trace(original.save_traces)
+    right = primary_trace(received.save_traces)
+    if left is None and right is None:
+        return
+    same_user = bool(left and right and left.user and left.user.casefold() == right.user.casefold())
+    same_company = bool(
+        left and right and left.company and left.company.casefold() == right.company.casefold()
+    )
+    same_root = bool(left and right and root_key(left) and root_key(left) == root_key(right))
+    if same_user:
+        message = (
+            "O mesmo usuário do Windows aparece nas duas planilhas. "
+            "É indício de autoria comum entre licitantes, não prova."
+        )
+    elif same_company:
+        message = (
+            "O mesmo OneDrive ou a mesma empresa aparece nas duas planilhas. "
+            "É indício de autoria comum entre licitantes, não prova."
+        )
+    elif same_root:
+        message = (
+            "A mesma pasta raiz aparece nas duas planilhas. "
+            "É indício de autoria comum entre licitantes, não prova."
+        )
+    elif left and right:
+        message = "Cada planilha foi salva numa pasta diferente."
+    else:
+        message = "Só uma das planilhas guarda a pasta do último salvamento."
+    _add(
+        changes,
+        sheet="",
+        cell="absPath",
+        type_label="pasta onde foi salvo",
+        category="metadado",
+        message=message,
+        before_raw=evidence_text(left, show=True) if left else "",
+        after_raw=evidence_text(right, show=True) if right else "",
+        before_masked=evidence_text(left, show=False) if left else "—",
+        after_masked=evidence_text(right, show=False) if right else "—",
+    )
+
+
 def _meta_lookup(props: dict[str, str]) -> dict[str, tuple[str, str]]:
     return {key.casefold(): (key, value) for key, value in props.items()}
 
@@ -622,6 +666,7 @@ def compare_workbooks(
             )
     _compare_names(original, received, changes)
     _compare_links(original, received, changes)
+    _compare_save_folders(original, received, changes)
     if original.has_vba != received.has_vba:
         _add(
             changes,
@@ -958,7 +1003,8 @@ _HTML = """\
   tr.cat-estrutura td {{ background: var(--medio-bg); }}
   tr.cat-metadado td {{ background: var(--info-bg); }}
   tr.changed td {{ background: var(--info-bg); }}
-  td.value {{ font-family: Consolas, "Courier New", monospace; font-size: 0.86rem; word-break: break-word; }}
+  td.value {{ font-family: Consolas, "Courier New", monospace; font-size: 0.86rem; word-break: break-word;
+    white-space: pre-line; }}
   footer {{ margin-top: 2rem; padding-top: 0.8rem; border-top: 1px solid var(--line); color: var(--muted); }}
   @media print {{
     body {{ background: #fff; }} main {{ max-width: none; padding: 0; }}

@@ -36,6 +36,7 @@ Lê a planilha de proposta, medição, orçamento ou laudo (`.xlsx` e `.xlsm`) *
 | 💬 | Comentários e notas |
 | 🪪 | CPF, CNPJ, PIS e dado bancário com contexto |
 | 🗂️ | Caminho de rede, usuário do Windows, SharePoint e impressora |
+| 📁 | Pasta onde a planilha foi salva (usuário, OneDrive ou UNC) |
 | 👤 | Metadados: autor, empresa e último editor |
 | 🔗 | Vínculos externos e hiperlinks (anotados, nunca abertos) |
 | ⚙️ | Macros (lidas, nunca executadas) |

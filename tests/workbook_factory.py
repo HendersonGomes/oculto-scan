@@ -192,6 +192,9 @@ def build_workbook(
     connections: str | None = None,
     printer_settings: bytes | None = None,
     custom: dict[str, str] | None = None,
+    abs_path: str | None = None,
+    hyperlink_base: str | None = None,
+    template_path: str | None = None,
 ) -> Path:
     """Write a minimal OOXML workbook. ``sheets`` entries accept cells, comments, threads."""
     metadata = metadata or {}
@@ -393,11 +396,20 @@ def build_workbook(
             )
         names_xml = "<definedNames>" + "".join(chunks) + "</definedNames>"
 
+    abs_xml = ""
+    if abs_path:
+        abs_xml = (
+            '<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">'
+            '<mc:Choice Requires="x15">'
+            f'<x15ac:absPath url="{xml_escape(abs_path)}" '
+            'xmlns:x15ac="http://schemas.microsoft.com/office/spreadsheetml/2010/11/ac"/>'
+            "</mc:Choice></mc:AlternateContent>"
+        )
     parts["xl/workbook.xml"] = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        f"<sheets>{''.join(sheet_nodes)}</sheets>{names_xml}</workbook>"
+        f"{abs_xml}<sheets>{''.join(sheet_nodes)}</sheets>{names_xml}</workbook>"
     )
     parts["xl/_rels/workbook.xml.rels"] = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -433,6 +445,8 @@ def build_workbook(
         f"<Company>{company}</Company><Manager>{manager}</Manager>"
         + _meta_tag("Application", _meta_value(metadata, "Application"))
         + _meta_tag("AppVersion", _meta_value(metadata, "AppVersion"))
+        + _meta_tag("HyperlinkBase", hyperlink_base or _meta_value(metadata, "HyperlinkBase"))
+        + _meta_tag("Template", template_path or _meta_value(metadata, "Template"))
         + "</Properties>"
     )
     custom_rel = ""

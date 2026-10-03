@@ -446,6 +446,10 @@ _SCAN_COPY: dict[str, tuple[str, str]] = {
     "SharePoint/OneDrive": ("Link de nuvem interna", "O endereço mostra o site interno. Confira no HTML."),
     "impressora": ("Impressora da rede", "O arquivo cita uma impressora interna. Veja no HTML."),
     "máquina": ("Nome de máquina", "O arquivo cita um computador da rede. Veja no HTML."),
+    "Pasta onde foi salvo": (
+        "Pasta onde foi salvo",
+        "O Excel guardou a pasta. {evidence}. É indício, não prova.",
+    ),
 }
 _DIFF_COPY: dict[str, tuple[str, str]] = {
     "célula criada": ("Célula nova", "Apareceu conteúdo que não estava no arquivo original."),
@@ -468,6 +472,10 @@ _DIFF_COPY: dict[str, tuple[str, str]] = {
     "aba apagada": ("Aba apagada", "Uma aba do original não está no arquivo recebido."),
     "aba criada": ("Aba nova", "Entrou uma aba que não estava no original."),
     "macro": ("Macro mudou", "O arquivo de macro não é o mesmo. Veja o HTML."),
+    "pasta onde foi salvo": (
+        "Pastas dos dois arquivos",
+        "É indício de autoria comum entre licitantes, não prova.",
+    ),
 }
 _DIFF_WITH_VALUES = {
     "célula criada",
@@ -477,6 +485,7 @@ _DIFF_WITH_VALUES = {
     "valor alterado",
     "comentário novo",
     "comentário editado",
+    "pasta onde foi salvo",
 }
 
 
@@ -516,14 +525,23 @@ def risk_grade(session: Session) -> tuple[str, str]:
     return "baixo", f"nota geral · {_phrase(infos, 'info', 'infos')}"
 
 
+def _window_items(session: Session) -> tuple[list[Finding], list]:
+    """Findings for the cards, without a network hint that repeats the same evidence."""
+    findings = _visible_findings(session)
+    covered = {(item.type_label, item.evidence_masked or "") for item in findings}
+    hints = [hint for hint in session.network if (hint.type_label, hint.evidence_masked) not in covered]
+    return findings, hints
+
+
 def window_cards(session: Session, *, show: bool) -> list[WindowCard]:
     """Short cards for the window. ``show`` reveals a short snippet, not the long message."""
     if session.error or session.mode not in {"scan", "diff"}:
         return []
     if session.mode == "diff" and session.diff is not None:
         return [_diff_card(change, show=show) for change in session.diff.changes]
-    cards = [_scan_card(item, show=show) for item in _visible_findings(session)]
-    cards.extend(_scan_card(hint, show=show) for hint in session.network)
+    findings, hints = _window_items(session)
+    cards = [_scan_card(item, show=show) for item in findings]
+    cards.extend(_scan_card(hint, show=show) for hint in hints)
     return cards
 
 
@@ -547,8 +565,7 @@ def cards_for_window(session: Session, *, show: bool) -> tuple[list[WindowCard],
         ranked = sorted(changes, key=lambda change: _DIFF_CARD_RANK.get(change.category, 9))
         shown = [_diff_card(change, show=show) for change in ranked[:WINDOW_CARD_LIMIT]]
         return shown, len(changes) - WINDOW_CARD_LIMIT
-    findings = _visible_findings(session)
-    hints = list(session.network)
+    findings, hints = _window_items(session)
     total = len(findings) + len(hints)
     if total <= WINDOW_CARD_LIMIT:
         return window_cards(session, show=show), 0

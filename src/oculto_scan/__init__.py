@@ -1,6 +1,6 @@
 """Offline scanner for data leaks in construction workbooks (.xlsx/.xlsm)."""
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 
 from oculto_scan.public import diff_bytes, scan_bytes
 
