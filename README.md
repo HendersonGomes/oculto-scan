@@ -34,6 +34,17 @@
   <img src="docs/img/janela.png" alt="Janela do oculto-scan v0.2 com o medidor de risco" width="760">
 </p>
 
+## Para que serve
+
+- Enviou a planilha e ficou na dúvida do que foi alterado?
+- Mandou um boletim de medição e não sabe o que o fiscal ou a empresa mudou?
+- Vai enviar uma proposta sigilosa de licitação?
+- Tem CPF, nome ou CNPJ que não deveria aparecer (LGPD)?
+
+**Comparar dois arquivos** (`oculto-scan diff`) mostra valor, fórmula, estrutura (aba, linha, coluna ou vínculo) e metadado que mudaram, com a aba e a célula, e quem salvou por último. A análise aponta o que pode vazar, como CPF, CNPJ e autor. A cópia limpa tira comentário, autor e vínculo antes do envio; CPF dentro da célula fica para você revisar.
+
+Isso ajuda a encontrar dado pessoal. Não é conformidade com a LGPD e não substitui revisão humana nem assessoria jurídica. Quem salvou é só o último que gravou o arquivo: esse nome pode ser editado, e abrir sem salvar não deixa rastro. O detalhe está em [Comparar o que voltou](docs/uso.md#comparar-o-que-voltou-diff).
+
 Lê a planilha de proposta, medição, orçamento ou laudo (`.xlsx` e `.xlsm`) **antes** do envio e junta, num lugar só, o que um engenheiro olharia na pasta.
 
 **nenhum achado não significa arquivo limpo.**
