@@ -43,7 +43,7 @@ def test_installer_script_is_per_user_and_upgrades_in_place():
     for line in (ROOT / "pyproject.toml").read_text(encoding="utf-8").splitlines():
         if line.startswith("version = "):
             version = line.split("=", 1)[1].strip().strip('"')
-    assert version == "0.2.1"
+    assert version == "0.2.2"
     assert f'#define MyAppVersion "{version}"' in script
     assert f'#define MyAppVersionQuad "{version}.0"' in script
     assert _APP_ID in script

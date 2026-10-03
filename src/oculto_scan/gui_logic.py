@@ -6,11 +6,18 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from oculto_scan.analyze import scan_path
 from oculto_scan.clean import write_clean_copy
-from oculto_scan.diff import DiffReport, render_diff_html
-from oculto_scan.models import RISK_LABEL, Finding, NetworkHint
-from oculto_scan.public import inspect_bytes, inspect_diff_bytes
+from oculto_scan.diff import IDENTICAL, DiffReport, compare_workbooks, render_diff_html
+from oculto_scan.models import RISK_LABEL, RISK_RANK, Finding, NetworkHint
 from oculto_scan.report import DISCLAIMER, render_html, sorted_findings, summary
+from oculto_scan.workbook import (
+    ScanCancelled,
+    WorkbookParseError,
+    load_workbook,
+    read_document_properties,
+)
+from oculto_scan.zipsafe import FileTooLargeError, ZipSafetyError
 
 ACCEPTED_SUFFIXES = {".xlsx", ".xlsm"}
 CLEAN_BUTTON = "Gerar cópia limpa"
@@ -45,16 +52,46 @@ def validate_workbook(path: Path) -> str | None:
     return None
 
 
-def scan_file(path: Path) -> Session:
+def _same_file_bytes(left: Path, right: Path) -> bool:
+    if left.stat().st_size != right.stat().st_size:
+        return False
+    with left.open("rb") as first, right.open("rb") as second:
+        while True:
+            block_a = first.read(1024 * 1024)
+            block_b = second.read(1024 * 1024)
+            if block_a != block_b:
+                return False
+            if not block_a:
+                return True
+
+
+def scan_file(path: Path, *, max_mb: int | None = None, progress=None, cancel=None) -> Session:
     problem = validate_workbook(path)
     if problem:
         return Session(error=problem)
-    result = inspect_bytes(path.name, path.read_bytes(), show=False)
+    try:
+        findings, network = scan_path(
+            path,
+            path.name,
+            max_mb=max_mb,
+            progress=progress,
+            cancel=cancel,
+        )
+    except FileTooLargeError as exc:
+        return Session(error=str(exc))
+    except ScanCancelled:
+        return Session(error="Análise cancelada.")
+    except ZipSafetyError as exc:
+        return Session(error=f"Arquivo recusado por limite de segurança ({exc}). Nada foi executado.")
+    except WorkbookParseError as exc:
+        return Session(error=f"Não analisado: planilha ilegível ({exc}).")
+    except OSError as exc:
+        return Session(error=f"Não foi possível ler o arquivo ({exc}).")
     return Session(
         mode="scan",
-        findings=list(result.findings),
-        network=list(result.network),
-        scanned=result.scanned,
+        findings=list(findings),
+        network=list(network),
+        scanned=1,
         names=(path.name,),
     )
 
@@ -134,8 +171,12 @@ def finish_clean_session(
     remove_macros: bool = False,
     force: bool = False,
     output: Path | None = None,
+    progress=None,
+    cancel=None,
 ) -> tuple[Path, Session, str]:
     """Write the copy and scan it, so the meter shows the copy."""
+    if cancel is not None and cancel():
+        raise ScanCancelled()
     dest, _result = write_clean_copy(
         source,
         output,
@@ -143,33 +184,59 @@ def finish_clean_session(
         remove_macros=remove_macros,
         force=force,
     )
-    session = scan_file(dest)
+    session = scan_file(dest, progress=progress, cancel=cancel)
     note = f"Cópia gravada: {dest.name}. O original não foi alterado. O medidor mostra a cópia."
     return dest, session, note
 
 
-def run_scan_job(mode: str, left: str, right: str) -> Session:
+def run_scan_job(mode: str, left: str, right: str, *, progress=None, cancel=None) -> Session:
     """Scan or compare off the Tk thread. Paths are plain strings, already read in the window."""
     try:
         if mode == "diff":
-            return compare_files(Path(left), Path(right))
-        return scan_file(Path(left))
+            return compare_files(Path(left), Path(right), progress=progress, cancel=cancel)
+        return scan_file(Path(left), progress=progress, cancel=cancel)
     except OSError as exc:
         return Session(error=f"Não foi possível ler o arquivo ({exc}).")
 
 
-def compare_files(original: Path, received: Path) -> Session:
+def compare_files(original: Path, received: Path, *, progress=None, cancel=None) -> Session:
     for path in (original, received):
         problem = validate_workbook(path)
         if problem:
             return Session(error=f"{path.name}: {problem}")
-    report, _html = inspect_diff_bytes(
-        original.name,
-        original.read_bytes(),
-        received.name,
-        received.read_bytes(),
-        show=False,
-    )
+    try:
+        if original.resolve() == received.resolve() or _same_file_bytes(original, received):
+            report = DiffReport(
+                original=original.name,
+                received=received.name,
+                changes=[],
+                metadata=[],
+                identical=True,
+                headline=IDENTICAL,
+                exit_code=0,
+            )
+            return Session(mode="diff", diff=report, names=(original.name, received.name))
+        left = load_workbook(original, progress=progress, cancel=cancel)
+        right = load_workbook(received, progress=progress, cancel=cancel)
+        report = compare_workbooks(
+            left,
+            right,
+            original_label=original.name,
+            received_label=received.name,
+            original_props=read_document_properties(original),
+            received_props=read_document_properties(received),
+            identical=False,
+        )
+    except FileTooLargeError as exc:
+        return Session(error=str(exc))
+    except ScanCancelled:
+        return Session(error="Análise cancelada.")
+    except ZipSafetyError as exc:
+        return Session(error=f"Arquivo recusado por limite de segurança ({exc}). Nada foi executado.")
+    except WorkbookParseError as exc:
+        return Session(error=f"Não analisado: planilha ilegível ({exc}).")
+    except OSError as exc:
+        return Session(error=f"Não foi possível ler o arquivo ({exc}).")
     return Session(mode="diff", diff=report, names=(original.name, received.name))
 
 
@@ -458,6 +525,36 @@ def window_cards(session: Session, *, show: bool) -> list[WindowCard]:
     cards = [_scan_card(item, show=show) for item in _visible_findings(session)]
     cards.extend(_scan_card(hint, show=show) for hint in session.network)
     return cards
+
+
+# The window paints at most this many cards. The report keeps every finding.
+WINDOW_CARD_LIMIT = 200
+_CARD_RANK = {"alto": 0, "medio": 1, "info": 2}
+_DIFF_CARD_RANK = {"conteudo": 0, "estrutura": 1, "metadado": 2}
+
+
+def cards_for_window(session: Session, *, show: bool) -> tuple[list[WindowCard], int]:
+    """The most severe cards, plus how many stayed only in the report.
+
+    Small results are unchanged. A heavy sheet does not build one card per finding.
+    """
+    if session.error or session.mode not in {"scan", "diff"}:
+        return [], 0
+    if session.mode == "diff" and session.diff is not None:
+        changes = list(session.diff.changes)
+        if len(changes) <= WINDOW_CARD_LIMIT:
+            return window_cards(session, show=show), 0
+        ranked = sorted(changes, key=lambda change: _DIFF_CARD_RANK.get(change.category, 9))
+        shown = [_diff_card(change, show=show) for change in ranked[:WINDOW_CARD_LIMIT]]
+        return shown, len(changes) - WINDOW_CARD_LIMIT
+    findings = _visible_findings(session)
+    hints = list(session.network)
+    total = len(findings) + len(hints)
+    if total <= WINDOW_CARD_LIMIT:
+        return window_cards(session, show=show), 0
+    merged = sorted([*findings, *hints], key=lambda item: (-RISK_RANK.get(item.risk, 0),))
+    shown = [_scan_card(item, show=show) for item in merged[:WINDOW_CARD_LIMIT]]
+    return shown, total - WINDOW_CARD_LIMIT
 
 
 def _phrase(count: int, one: str, many: str) -> str:

@@ -6,11 +6,11 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from oculto_scan.analyze import analyze
+from oculto_scan.analyze import scan_path
 from oculto_scan.baseline import BaselineError, filter_findings, update_baseline
 from oculto_scan.ignore import IgnoreError, apply_ignore, load_ignore
 from oculto_scan.models import RISK_RANK, Finding, NetworkHint
-from oculto_scan.workbook import WorkbookParseError, load_workbook
+from oculto_scan.workbook import ScanCancelled, WorkbookParseError
 from oculto_scan.zipsafe import FileTooLargeError, ZipSafetyError
 
 _SUFFIXES = {".xlsx", ".xlsm"}
@@ -148,7 +148,11 @@ def scan_files(
     for path in workbooks:
         label = display_path(path)
         try:
-            workbook = load_workbook(path, max_mb=max_mb)
+            found, hints = scan_path(path, label, max_mb=max_mb, entropy=entropy)
+        except ScanCancelled:
+            result.exit_code = 2
+            result.messages.append("Análise cancelada.")
+            return result
         except FileTooLargeError as exc:
             findings.append(_unanalyzed(label, f"Não analisado: {exc}"))
             result.messages.append(f"Não analisado ({label}): {exc}")
@@ -191,8 +195,8 @@ def scan_files(
             findings.append(_unanalyzed(label, message))
             result.messages.append(f"Não analisado ({label}): ilegível.")
             continue
-        findings.extend(analyze(workbook, label, entropy=entropy))
-        network.extend(workbook.network_hints)
+        findings.extend(found)
+        network.extend(hints)
 
     ignored = 0
     if ignore_rules:

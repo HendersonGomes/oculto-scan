@@ -185,7 +185,7 @@ def _from_text(text: str, *, file_label: str, sheet: str, cell: str, source: str
     return found
 
 
-def _spots(workbook: Workbook, extra: list[tuple[str, str, str, str]]) -> list[tuple[str, str, str, str]]:
+def _spots_before(workbook: Workbook) -> list[tuple[str, str, str, str]]:
     spots: list[tuple[str, str, str, str]] = []
     for key, value in workbook.metadata.items():
         spots.append(("metadado", "", key, value))
@@ -193,14 +193,23 @@ def _spots(workbook: Workbook, extra: list[tuple[str, str, str, str]]) -> list[t
         spots.append(("vínculo", "", "", link))
     for name in workbook.defined_names:
         spots.append(("nome", name.local_sheet or "", name.name, name.formula))
-    for sheet in workbook.sheets:
-        for cell in sheet.cells:
-            text = "\n".join(piece for piece in (cell.value, cell.formula) if piece)
-            if text:
-                spots.append(("célula", sheet.name, cell.ref, text))
-        for comment in sheet.comments:
-            if comment.text:
-                spots.append(("comentário", sheet.name, comment.ref, comment.text))
+    return spots
+
+
+def _spots_sheet(sheet) -> list[tuple[str, str, str, str]]:
+    spots: list[tuple[str, str, str, str]] = []
+    for cell in sheet.cells:
+        text = "\n".join(piece for piece in (cell.value, cell.formula) if piece)
+        if text:
+            spots.append(("célula", sheet.name, cell.ref, text))
+    for comment in sheet.comments:
+        if comment.text:
+            spots.append(("comentário", sheet.name, comment.ref, comment.text))
+    return spots
+
+
+def _spots_after(workbook: Workbook, extra: list[tuple[str, str, str, str]]) -> list[tuple[str, str, str, str]]:
+    spots: list[tuple[str, str, str, str]] = []
     for label, cell in workbook.external_cache:
         text = "\n".join(piece for piece in (cell.value, cell.formula) if piece)
         if text:
@@ -215,6 +224,30 @@ def _spots(workbook: Workbook, extra: list[tuple[str, str, str, str]]) -> list[t
     return spots
 
 
+def _spots(workbook: Workbook, extra: list[tuple[str, str, str, str]]) -> list[tuple[str, str, str, str]]:
+    spots = _spots_before(workbook)
+    for sheet in workbook.sheets:
+        spots.extend(_spots_sheet(sheet))
+    spots.extend(_spots_after(workbook, extra))
+    return spots
+
+
+def absorb_hints(
+    spots: list[tuple[str, str, str, str]],
+    *,
+    file_label: str,
+    hints: list[NetworkHint],
+    seen: set[tuple[str, str, str, str]],
+) -> None:
+    for source, sheet, cell, text in spots:
+        for hint in _from_text(text, file_label=file_label, sheet=sheet, cell=cell, source=source):
+            key = (hint.kind, hint.evidence_raw.casefold(), hint.sheet, hint.cell)
+            if key in seen:
+                continue
+            seen.add(key)
+            hints.append(hint)
+
+
 def collect_network(
     workbook: Workbook,
     file_label: str,
@@ -222,13 +255,7 @@ def collect_network(
 ) -> list[NetworkHint]:
     hints: list[NetworkHint] = []
     seen: set[tuple[str, str, str, str]] = set()
-    for source, sheet, cell, text in _spots(workbook, extra or []):
-        for hint in _from_text(text, file_label=file_label, sheet=sheet, cell=cell, source=source):
-            key = (hint.kind, hint.evidence_raw.casefold(), hint.sheet, hint.cell)
-            if key in seen:
-                continue
-            seen.add(key)
-            hints.append(hint)
+    absorb_hints(_spots(workbook, extra or []), file_label=file_label, hints=hints, seen=seen)
     return hints
 
 

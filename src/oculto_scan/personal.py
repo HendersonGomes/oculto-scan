@@ -9,7 +9,9 @@ Bank data is contextual only; there is no generic check digit.
 
 from __future__ import annotations
 
+import bisect
 import re
+import time
 from dataclasses import dataclass
 
 import tarja
@@ -72,24 +74,73 @@ def _text_cells(sheet_cells: list) -> list:
     return [cell for cell in sheet_cells if cell.value and not _looks_numeric(cell.value)]
 
 
-def _nearest_header(cells: list, col: int, row: int) -> str | None:
-    above = [cell for cell in cells if cell.col == col and cell.row < row]
-    if not above:
-        return None
-    return max(above, key=lambda cell: cell.row).value
+class _LabelIndex:
+    """Nearest text above or to the left, without scanning the whole sheet per cell.
+
+    ``max()`` keeps the first cell when several share the winning row or column.
+    The lists are sorted by coordinate, then by the original order, so the
+    binary search can walk back to that first cell.
+    """
+
+    def __init__(self, cells: list) -> None:
+        by_col: dict[int, list[tuple[int, int, str]]] = {}
+        by_row: dict[int, list[tuple[int, int, str]]] = {}
+        for index, cell in enumerate(cells):
+            by_col.setdefault(cell.col, []).append((cell.row, index, cell.value))
+            by_row.setdefault(cell.row, []).append((cell.col, index, cell.value))
+        self._by_col = {key: sorted(items) for key, items in by_col.items()}
+        self._by_row = {key: sorted(items) for key, items in by_row.items()}
+
+    def header(self, col: int, row: int) -> str | None:
+        column = self._by_col.get(col)
+        if not column:
+            return None
+        pos = bisect.bisect_left(column, (row, -1, ""))
+        if pos == 0:
+            return None
+        winner = column[pos - 1][0]
+        start = pos - 1
+        while start > 0 and column[start - 1][0] == winner:
+            start -= 1
+        return column[start][2]
+
+    def left(self, col: int, row: int) -> str:
+        line = self._by_row.get(row)
+        if not line:
+            return ""
+        pos = bisect.bisect_left(line, (col, -1, ""))
+        if pos == 0:
+            return ""
+        winner = line[pos - 1][0]
+        start = pos - 1
+        while start > 0 and line[start - 1][0] == winner:
+            start -= 1
+        return line[start][2]
 
 
-def _nearest_left(cells: list, col: int, row: int) -> str:
-    left = [cell for cell in cells if cell.row == row and cell.col < col]
-    if not left:
-        return ""
-    return max(left, key=lambda cell: cell.col).value
+def _pace(step: int, cancel) -> None:
+    if step % 2000:
+        return
+    if cancel is not None and cancel():
+        from oculto_scan.workbook import ScanCancelled
+
+        raise ScanCancelled()
+    time.sleep(0)
 
 
-def _spots(workbook: Workbook) -> list[_Spot]:
+def _spots(
+    workbook: Workbook,
+    *,
+    only_sheet=None,
+    include_sheets: bool = True,
+    include_meta: bool = True,
+    cancel=None,
+) -> list[_Spot]:
     spots: list[_Spot] = []
-    sheets = list(workbook.sheets)
-    if workbook.external_cache:
+    sheets: list = []
+    if include_sheets:
+        sheets = [only_sheet] if only_sheet is not None else list(workbook.sheets)
+    if include_meta and workbook.external_cache and only_sheet is None:
         from oculto_scan.models import Sheet
 
         sheets.append(
@@ -99,18 +150,21 @@ def _spots(workbook: Workbook) -> list[_Spot]:
                 cells=[cell for _label, cell in workbook.external_cache],
             )
         )
+    step = 0
     for sheet in sheets:
-        labels = _text_cells(sheet.cells)
+        labels = _LabelIndex(_text_cells(sheet.cells))
         for cell in sheet.cells:
+            step += 1
+            _pace(step, cancel)
             chunks = [piece for piece in (cell.value, cell.formula) if piece]
             if not chunks:
                 continue
-            header = _nearest_header(labels, cell.col, cell.row) if cell.row else None
+            header = labels.header(cell.col, cell.row) if cell.row else None
             if header:
                 context = header
                 blocked = bool(_CPF_CANCEL.search(header))
             else:
-                label = _nearest_left(labels, cell.col, cell.row) if cell.row else ""
+                label = labels.left(cell.col, cell.row) if cell.row else ""
                 context = " ".join(piece for piece in (label, sheet.name) if piece)
                 blocked = False
             spots.append(
@@ -136,8 +190,9 @@ def _spots(workbook: Workbook) -> list[_Spot]:
                     context=" ".join((comment.text, comment.author or "", sheet.name)),
                 )
             )
-    for key, value in workbook.metadata.items():
-        spots.append(_Spot(sheet="", cell=key, row=None, col=None, text=value, context=key))
+    if include_meta:
+        for key, value in workbook.metadata.items():
+            spots.append(_Spot(sheet="", cell=key, row=None, col=None, text=value, context=key))
     return spots
 
 
@@ -162,9 +217,22 @@ def _cpf_digits_ok(digits: str) -> bool:
     return _dv(digits[:9]) == int(digits[9]) and _dv(digits[:10]) == int(digits[10])
 
 
-def _collect(workbook: Workbook) -> list[_IdHit]:
+def _collect(
+    workbook: Workbook,
+    *,
+    only_sheet=None,
+    include_sheets: bool = True,
+    include_meta: bool = True,
+    cancel=None,
+) -> list[_IdHit]:
     hits: list[_IdHit] = []
-    for spot in _spots(workbook):
+    for spot in _spots(
+        workbook,
+        only_sheet=only_sheet,
+        include_sheets=include_sheets,
+        include_meta=include_meta,
+        cancel=cancel,
+    ):
         if not spot.text or not spot.text.strip():
             continue
         seen_digits: set[str] = set()
@@ -207,8 +275,26 @@ def _risk_for_group(entity: str, count: int) -> str:
     return "medio"
 
 
-def personal_findings(workbook: Workbook, file_label: str) -> list[Finding]:
-    hits = [hit for hit in _collect(workbook) if hit.contextual or hit.entity == "cnpj"]
+def personal_findings(
+    workbook: Workbook,
+    file_label: str,
+    *,
+    only_sheet=None,
+    include_sheets: bool = True,
+    include_meta: bool = True,
+    cancel=None,
+) -> list[Finding]:
+    hits = [
+        hit
+        for hit in _collect(
+            workbook,
+            only_sheet=only_sheet,
+            include_sheets=include_sheets,
+            include_meta=include_meta,
+            cancel=cancel,
+        )
+        if hit.contextual or hit.entity == "cnpj"
+    ]
     counts_sheet: dict[tuple[str, str], int] = {}
     counts_col: dict[tuple[str, str, int | None], int] = {}
     for hit in hits:
@@ -231,7 +317,8 @@ def personal_findings(workbook: Workbook, file_label: str) -> list[Finding]:
         count = max(sheet_count, col_count)
         risk = _risk_for_group(hit.entity, count)
         findings.append(_finding(file_label, hit, risk, count))
-    findings.extend(_bank_findings(workbook, file_label))
+    if include_sheets:
+        findings.extend(_bank_findings(workbook, file_label, only_sheet=only_sheet))
     return findings
 
 
@@ -282,24 +369,26 @@ def _finding(file_label: str, hit: _IdHit, risk: str, count: int) -> Finding:
     )
 
 
-def _header_map(workbook: Workbook) -> dict[tuple[str, int, int], str]:
+def _header_map(workbook: Workbook, *, only_sheet=None) -> dict[tuple[str, int, int], str]:
     """Nearest text above each content cell, keyed by sheet, column and row."""
     headers: dict[tuple[str, int, int], str] = {}
-    for sheet in workbook.sheets:
-        labels = _text_cells(sheet.cells)
+    sheets = [only_sheet] if only_sheet is not None else workbook.sheets
+    for sheet in sheets:
+        labels = _LabelIndex(_text_cells(sheet.cells))
         for cell in sheet.cells:
-            header = _nearest_header(labels, cell.col, cell.row)
+            header = labels.header(cell.col, cell.row)
             if header:
                 headers[(sheet.name, cell.col, cell.row)] = header
     return headers
 
 
-def _bank_findings(workbook: Workbook, file_label: str) -> list[Finding]:
+def _bank_findings(workbook: Workbook, file_label: str, *, only_sheet=None) -> list[Finding]:
     findings: list[Finding] = []
-    headers = _header_map(workbook)
+    headers = _header_map(workbook, only_sheet=only_sheet)
     seen: set[tuple[str, str, str]] = set()
     covered: set[tuple[str, str]] = set()
-    for sheet in workbook.sheets:
+    sheets = [only_sheet] if only_sheet is not None else workbook.sheets
+    for sheet in sheets:
         for cell in sheet.cells:
             if not cell.value:
                 continue
