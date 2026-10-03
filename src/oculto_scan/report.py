@@ -13,6 +13,9 @@ from oculto_scan import __version__
 from oculto_scan.models import RISK_LABEL, RISK_RANK, Finding, NetworkHint
 
 DISCLAIMER = "nenhum achado não significa arquivo limpo."
+HTML_CELL_EXAMPLES = 20
+HTML_ROWS_PER_TYPE = 500
+_JSON_NOTE = "A lista de cada célula sai com --format json."
 
 _RESET = "\033[0m"
 _BOLD = "\033[1m"
@@ -346,6 +349,183 @@ def _network_html(hints: list[NetworkHint], *, show: bool) -> str:
     return f'<section class="mapa"><h2>Mapa da rede</h2>{body}</section>'
 
 
+def _pt(number: int) -> str:
+    return f"{number:,}".replace(",", ".")
+
+
+class _HtmlGroup:
+    __slots__ = ("file", "rule", "type_label", "risk", "message", "count", "samples")
+
+    def __init__(self, finding: Finding) -> None:
+        self.file = finding.file
+        self.rule = finding.rule
+        self.type_label = finding.type_label
+        self.risk = finding.risk
+        self.message = finding.message
+        self.count = 0
+        self.samples: list[tuple[str, str, str, str]] = []
+
+    def add(self, finding: Finding) -> None:
+        self.count += 1
+        if len(self.samples) < HTML_CELL_EXAMPLES:
+            self.samples.append(
+                (
+                    finding.sheet,
+                    finding.cell,
+                    finding.evidence_masked or "",
+                    finding.evidence_raw or "",
+                )
+            )
+
+
+def _html_groups(findings: list[Finding]) -> list[_HtmlGroup]:
+    """Collapse repeats of the same type, rule, risk and explanation.
+
+    Examples keep the first cells in scan order. The groups themselves stay
+    ordered by severity, like the old row-by-row report.
+    """
+    groups: dict[tuple[str, str, str, str, str], _HtmlGroup] = {}
+    for finding in _without_map(findings):
+        key = (finding.file, finding.rule, finding.type_label, finding.risk, finding.message)
+        group = groups.get(key)
+        if group is None:
+            group = _HtmlGroup(finding)
+            groups[key] = group
+        group.add(finding)
+
+    def _rank(group: _HtmlGroup) -> tuple[int, str, str, str, str]:
+        sheet, cell = ("", "")
+        if group.samples:
+            sheet, cell = group.samples[0][0], group.samples[0][1]
+        return (-RISK_RANK.get(group.risk, 0), group.file, sheet, cell, group.rule)
+
+    return sorted(groups.values(), key=_rank)
+
+
+def _spot(sheet: str, cell: str) -> str:
+    if sheet and cell:
+        return f"{sheet}!{cell}"
+    return sheet or cell or "—"
+
+
+def _example_cells(group: _HtmlGroup) -> str:
+    shown = ", ".join(_spot(sheet, cell) for sheet, cell, _masked, _raw in group.samples)
+    extra = group.count - len(group.samples)
+    if extra > 0:
+        tail = f" e mais {_pt(extra)} células"
+        return (shown + tail) if shown else tail.strip()
+    return shown or "—"
+
+
+def _example_values(group: _HtmlGroup, *, show: bool) -> str:
+    values: list[str] = []
+    for _sheet, _cell, masked, raw in group.samples:
+        value = raw if show and raw else masked
+        if value and value not in values:
+            values.append(value)
+    return " · ".join(values) if values else "—"
+
+
+def _type_summary(groups: list[_HtmlGroup]) -> str:
+    if not groups:
+        return ""
+    totals: dict[tuple[str, str], int] = {}
+    for group in groups:
+        key = (group.type_label, group.risk)
+        totals[key] = totals.get(key, 0) + group.count
+    rows = sorted(totals.items(), key=lambda item: (-RISK_RANK.get(item[0][1], 0), -item[1], item[0][0]))
+    body = []
+    for (label, risk), count in rows:
+        risk_name = RISK_LABEL.get(risk, risk)
+        body.append(
+            f'<tr class="risk-{_esc(risk)}">'
+            f"<td>{_esc(label)}</td>"
+            f'<td><span class="badge badge-{_esc(risk)}">{_esc(risk_name)}</span></td>'
+            f"<td>{_esc(_pt(count))}</td>"
+            "</tr>"
+        )
+    table = (
+        "<table><thead><tr><th>Tipo</th><th>Risco</th><th>Quantidade</th></tr></thead><tbody>"
+        + "".join(body)
+        + "</tbody></table>"
+    )
+    return (
+        '<details class="tipos" open><summary>Por gravidade e tipo</summary>'
+        f"{table}</details>"
+    )
+
+
+def _files_html(groups: list[_HtmlGroup], *, show: bool) -> str:
+    if not groups:
+        return ""
+    by_file: dict[str, list[_HtmlGroup]] = {}
+    for group in groups:
+        by_file.setdefault(group.file, []).append(group)
+
+    def _file_rank(name: str) -> tuple[int, str]:
+        worst = max(RISK_RANK.get(item.risk, 0) for item in by_file[name])
+        return (-worst, name)
+
+    sections: list[str] = []
+    value_header = "Valor revelado" if show else "Valor mascarado"
+    for name in sorted(by_file, key=_file_rank):
+        file_groups = by_file[name]
+        buckets: dict[tuple[str, str], list[_HtmlGroup]] = {}
+        bucket_order: list[tuple[str, str]] = []
+        for group in file_groups:
+            key = (group.risk, group.type_label)
+            if key not in buckets:
+                bucket_order.append(key)
+                buckets[key] = []
+            buckets[key].append(group)
+        blocks: list[str] = []
+        total = sum(item.count for item in file_groups)
+        noun = "achado" if total == 1 else "achados"
+        for risk, label in bucket_order:
+            bucket = buckets[(risk, label)]
+            shown = bucket[:HTML_ROWS_PER_TYPE]
+            omitted = sum(item.count for item in bucket[HTML_ROWS_PER_TYPE:])
+            rows: list[str] = []
+            for group in shown:
+                risk_name = RISK_LABEL.get(group.risk, group.risk)
+                rows.append(
+                    f'<tr class="risk-{_esc(group.risk)}">'
+                    f"<td>{_esc(_pt(group.count))}</td>"
+                    f"<td>{_esc(_example_cells(group))}</td>"
+                    f'<td><span class="badge badge-{_esc(group.risk)}">{_esc(risk_name)}</span></td>'
+                    f"<td>{_esc(group.message)}</td>"
+                    f'<td class="value">{_esc(_example_values(group, show=show))}</td>'
+                    "</tr>"
+                )
+            warning = ""
+            if omitted:
+                warning = (
+                    f'<p class="omit">Mais {_esc(_pt(omitted))} achados deste tipo ficaram de fora '
+                    "desta página. A lista completa sai com --format json.</p>"
+                )
+            kind_total = sum(item.count for item in bucket)
+            opened = " open" if risk != "info" or len(shown) <= 40 else ""
+            blocks.append(
+                f"<details{opened}>"
+                f"<summary>{_esc(label)} · {_esc(_pt(kind_total))}</summary>"
+                "<table><thead><tr>"
+                "<th>Quantidade</th><th>Exemplos de células</th><th>Risco</th>"
+                f"<th>Explicação</th><th>{_esc(value_header)}</th>"
+                "</tr></thead><tbody>"
+                + "".join(rows)
+                + "</tbody></table>"
+                + warning
+                + "</details>"
+            )
+        sections.append(
+            '<section class="arquivo"><details open>'
+            f"<summary>{_esc(name)} · {_esc(_pt(total))} {_esc(noun)}</summary>"
+            + "".join(blocks)
+            + "</details></section>"
+        )
+    return "".join(sections)
+
+
 def render_html(
     findings: list[Finding],
     *,
@@ -360,12 +540,12 @@ def render_html(
     when = generated_at if generated_at is not None else datetime.now().astimezone()
     stamp = _format_stamp(when)
     counts = summary(findings)
-    groups = _by_file(_without_map(findings))
-    scanned_files = files or [name for name, _items in groups]
+    grouped = _html_groups(findings)
+    scanned_files = files or list(dict.fromkeys(group.file for group in grouped))
     file_items = "".join(f"<li>{_esc(name)}</li>" for name in scanned_files) or "<li>Nenhuma planilha.</li>"
 
     sections: list[str] = []
-    if not groups:
+    if not grouped:
         if scanned == 0:
             empty = "Nenhuma planilha .xlsx ou .xlsm encontrada."
         elif not findings:
@@ -374,35 +554,7 @@ def render_html(
             empty = ""
         if empty:
             sections.append(f'<p class="empty">{_esc(empty)}</p>')
-    for name, items in groups:
-        rows: list[str] = []
-        for finding in items:
-            if show and finding.evidence_raw:
-                value = finding.evidence_raw
-            else:
-                value = finding.evidence_masked or "—"
-            risk = RISK_LABEL.get(finding.risk, finding.risk)
-            rows.append(
-                f'<tr class="risk-{_esc(finding.risk)}">'
-                f"<td>{_esc(finding.sheet or '—')}</td>"
-                f"<td>{_esc(finding.cell or '—')}</td>"
-                f"<td>{_esc(finding.type_label)}</td>"
-                f'<td><span class="badge badge-{_esc(finding.risk)}">{_esc(risk)}</span></td>'
-                f"<td>{_esc(finding.message)}</td>"
-                f'<td class="value">{_esc(value)}</td>'
-                "</tr>"
-            )
-        value_header = "Valor revelado" if show else "Valor mascarado"
-        sections.append(
-            '<section class="file">'
-            f"<h2>{_esc(name)}</h2>"
-            "<table><thead><tr>"
-            "<th>Aba</th><th>Célula</th><th>Tipo</th><th>Risco</th>"
-            f"<th>Explicação</th><th>{_esc(value_header)}</th>"
-            "</tr></thead><tbody>"
-            + "".join(rows)
-            + "</tbody></table></section>"
-        )
+    sections.append(_files_html(grouped, show=show))
 
     banner = f'<p class="revelado">{_esc(_REVEALED_BANNER)}</p>' if show else ""
     lead = (
@@ -418,14 +570,16 @@ def render_html(
         stamp=_esc(stamp),
         scanned=_esc(scanned),
         ignored=_esc(ignored),
-        alto=_esc(counts["alto"]),
-        medio=_esc(counts["medio"]),
-        info=_esc(counts["info"]),
-        total=_esc(counts["total"]),
+        alto=_esc(_pt(counts["alto"])),
+        medio=_esc(_pt(counts["medio"])),
+        info=_esc(_pt(counts["info"])),
+        total=_esc(_pt(counts["total"])),
         files=file_items,
+        tipos=_type_summary(grouped),
         sections="".join(sections),
         network=_network_html(network, show=show) if network is not None else "",
         disclaimer=_esc(DISCLAIMER),
+        nota=_esc(_JSON_NOTE),
     )
 
 
@@ -492,6 +646,16 @@ _HTML = """\
   .resumo .medio strong {{ color: var(--medio); }}
   .resumo .info strong {{ color: var(--info); }}
   h2 {{ font-size: 1.05rem; margin: 1.6rem 0 0.6rem; word-break: break-word; }}
+  details {{
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin: 0.75rem 0;
+    padding: 0.35rem 0.85rem 0.85rem;
+  }}
+  summary {{ cursor: pointer; font-weight: 650; padding: 0.45rem 0; }}
+  summary .qtd, .qtd {{ color: var(--muted); font-weight: 650; }}
+  .omit {{ color: var(--muted); margin: 0.7rem 0 0; }}
   .files {{ margin: 0.4rem 0 0; padding-left: 1.1rem; }}
   .files li {{ word-break: break-word; }}
   table {{ width: 100%; border-collapse: collapse; background: var(--card); }}
@@ -532,7 +696,8 @@ _HTML = """\
     body {{ background: #fff; }}
     main {{ max-width: none; padding: 0; }}
     .resumo article, table {{ border-color: #ccc; }}
-    tr, .resumo article, header, footer {{ break-inside: avoid; }}
+    tr, .resumo article, header, footer, details {{ break-inside: avoid; }}
+    details, details > * {{ display: block; }}
     h2 {{ break-after: avoid; }}
     * {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
   }}
@@ -559,9 +724,10 @@ _HTML = """\
     <article class="info"><strong>{info}</strong><span>info</span></article>
     <article><strong>{total}</strong><span>no total</span></article>
   </section>
+  {tipos}
   {sections}
   {network}
-  <footer>{disclaimer}</footer>
+  <footer><p>{disclaimer}</p><p>{nota}</p></footer>
 </main>
 </body>
 </html>

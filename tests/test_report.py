@@ -63,7 +63,9 @@ def test_html_orders_by_severity_and_splits_tables_by_file():
     page = render_html(findings, ignored=2, scanned=2, files=["a.xlsx", "b.xlsx"])
     assert page.index("a.xlsx") < page.index("b.xlsx")
     assert page.index("aba oculta") < page.index("comentário")
-    assert page.count("<table>") == 2
+    assert page.count('class="arquivo"') == 2
+    assert "<details" in page
+    assert "Por gravidade e tipo" in page
     assert ">2</strong><span>ignorados" not in page
     assert ">2</dd>" in page
 

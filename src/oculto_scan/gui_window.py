@@ -81,6 +81,7 @@ _INVITE = "Escolha um arquivo para ver os achados aqui, em linguagem simples."
 _CLEAN = "Nenhum achado. O texto completo continua no relatório HTML."
 _CLEAN_HINT = "A cópia é outro arquivo. O original não muda."
 _CLEAN_BUSY = "Gerando a cópia limpa neste computador."
+_REPORT_BUSY = "Gerando relatório..."
 
 _WORD = {
     "limpo": "Limpo",
@@ -130,12 +131,16 @@ def apply_window_icon(root: tk.Tk) -> tk.PhotoImage | None:
 
 
 def open_document(path: Path) -> None:
-    """Open a local HTML file. This does not contact a website."""
+    """Open a local HTML file without waiting for the browser. Does not contact a website.
+
+    Call this off the Tk thread. ``startfile`` and ``Popen`` return as soon as the
+    browser is launched.
+    """
     if sys.platform == "win32":
         os.startfile(path)  # type: ignore[attr-defined]
         return
     command = ["open", str(path)] if sys.platform == "darwin" else ["xdg-open", str(path)]
-    subprocess.run(command, check=False)
+    subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 class App:
@@ -143,6 +148,7 @@ class App:
         self.root = root
         self.session = Session()
         self.saved: Path | None = None
+        self._saved_show: bool | None = None
         self._busy = False
         self._cancel_flag = threading.Event()
         self._card_gen = 0
@@ -563,6 +569,7 @@ class App:
     def _begin_busy(self, status: str) -> None:
         self._busy = True
         self.saved = None
+        self._saved_show = None
         self._set_actions_enabled(False)
         self._status.set(status)
         self._meter = ("analisando", "Analisando...", "")
@@ -572,11 +579,13 @@ class App:
         self._progress.start(12)
         self.root.after(30, self._poll_results)
 
-    def _set_actions_enabled(self, enabled: bool) -> None:
+    def _set_actions_enabled(self, enabled: bool, *, cancel: bool | None = None) -> None:
         state = ["!disabled"] if enabled else ["disabled"]
         for widget in (self._go, self._save_btn, self._open_btn, self._clean_btn, *self._pick_buttons, *self._radios):
             widget.state(state)
-        self._cancel_btn.state(["disabled"] if enabled else ["!disabled"])
+        if cancel is None:
+            cancel = not enabled
+        self._cancel_btn.state(["!disabled"] if cancel else ["disabled"])
 
     def _poll_results(self) -> None:
         try:
@@ -618,6 +627,11 @@ class App:
             self.session = session
             self._title.set("Risco da cópia limpa")
             self._status.set(note or _OFFLINE)
+        elif kind == "report-ok":
+            path, show, message = payload
+            self.saved = path
+            self._saved_show = show
+            self._status.set(message)
         else:
             self._notice(str(payload))
             self._status.set(_OFFLINE)
@@ -851,17 +865,48 @@ class App:
         except Exception:
             self._results.put(("clean-err", "Não foi possível gravar a cópia."))
 
-    def _html(self) -> str:
-        if not self.session.ready:
-            return ""
-        return result_html(self.session, show=bool(self._show.get()))
-
     def _notice(self, text: str) -> None:
         self._dialog("oculto-scan", text)
 
+    def _start_report(self, path: Path, *, open_after: bool, message: str) -> None:
+        session = self.session
+        show = bool(self._show.get())
+        self._busy = True
+        self._set_actions_enabled(False, cancel=False)
+        self._status.set(_REPORT_BUSY)
+        self._progress.pack(fill="x", pady=(6, 0))
+        self._progress.start(12)
+        self.root.after(30, self._poll_results)
+        threading.Thread(
+            target=self._worker_report,
+            args=(session, show, path, open_after, message),
+            daemon=True,
+        ).start()
+
+    def _worker_report(self, session: Session, show: bool, path: Path, open_after: bool, message: str) -> None:
+        try:
+            page = result_html(session, show=show)
+            if not page:
+                self._results.put(("report-err", "Escaneie um arquivo antes de salvar o relatório."))
+                return
+            write_private_text(path, page)
+        except OSError as exc:
+            self._results.put(("report-err", f"Não foi possível gravar o relatório ({exc})."))
+            return
+        except Exception:
+            self._results.put(("report-err", "Não foi possível gravar o relatório."))
+            return
+        if open_after:
+            try:
+                open_document(path)
+            except OSError:
+                message = "O relatório foi gravado, mas não foi possível abri-lo."
+        self._results.put(("report-ok", (path, show, message)))
+
     def _save(self) -> None:
-        html = self._html()
-        if not html:
+        if self._busy:
+            return
+        if not self.session.ready:
             self._notice("Escaneie um arquivo antes de salvar o relatório.")
             return
         name = suggested_html_name(show=bool(self._show.get()), mode=self.session.mode)
@@ -874,24 +919,47 @@ class App:
         if not chosen:
             return
         path = Path(chosen)
-        write_private_text(path, html)
-        self.saved = path
-        self._status.set(f"Relatório salvo em {path}. Nada foi enviado para a internet.")
+        self._start_report(
+            path,
+            open_after=False,
+            message=f"Relatório salvo em {path}. Nada foi enviado para a internet.",
+        )
 
     def _open(self) -> None:
-        html = self._html()
-        if not html:
+        if self._busy:
+            return
+        if not self.session.ready:
             self._notice("Escaneie um arquivo antes de abrir o relatório.")
             return
+        show = bool(self._show.get())
         path = self.saved
-        if path is None or not path.is_file():
-            handle = tempfile.NamedTemporaryFile(prefix="oculto-scan-", suffix=".html", delete=False)
-            handle.close()
-            path = Path(handle.name)
-            write_private_text(path, html)
-            self.saved = path
-            self._status.set("Relatório aberto de um arquivo temporário. Use Salvar para guardar uma cópia.")
-        open_document(path)
+        if path is not None and path.is_file() and self._saved_show is show:
+            self._start_report_open(path, show)
+            return
+        handle = tempfile.NamedTemporaryFile(prefix="oculto-scan-", suffix=".html", delete=False)
+        handle.close()
+        self._start_report(
+            Path(handle.name),
+            open_after=True,
+            message="Relatório aberto de um arquivo temporário. Use Salvar para guardar uma cópia.",
+        )
+
+    def _start_report_open(self, path: Path, show: bool) -> None:
+        self._busy = True
+        self._set_actions_enabled(False, cancel=False)
+        self._status.set("Abrindo o relatório...")
+        self.root.after(30, self._poll_results)
+        threading.Thread(target=self._worker_open, args=(path, show), daemon=True).start()
+
+    def _worker_open(self, path: Path, show: bool) -> None:
+        try:
+            open_document(path)
+        except OSError:
+            self._results.put(("report-err", "Não foi possível abrir o relatório."))
+            return
+        self._results.put(
+            ("report-ok", (path, show, "Relatório aberto neste computador. Nada foi enviado para a internet."))
+        )
 
 
 def run() -> None:

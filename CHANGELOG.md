@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3
+
+- O relatório HTML deixa de listar cada célula. Achados do mesmo tipo viram uma linha com a quantidade e até 20 exemplos. O topo resume gravidade e tipo, e as seções abrem e fecham.
+- A página fica pequena mesmo com dezenas de milhares de achados. A lista de cada célula continua em `--format json`.
+- Salvar e abrir o relatório não trava a janela. Enquanto grava, aparece «Gerando relatório...» e os botões ficam desligados.
+
 ## 0.2.2
 
 - Planilha grande deixa de travar a janela. A aba é lida em fluxo, sem montar o XML inteiro na memória, e a busca de cabeçalho não percorre a aba de novo para cada célula.
