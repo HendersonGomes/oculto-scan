@@ -25,6 +25,7 @@ from oculto_scan.formulas import parse_formula, reference_is_hidden
 from oculto_scan.models import DefinedName, Finding, Workbook
 from oculto_scan.refs import split_cell
 from oculto_scan.report import summary
+from oculto_scan.savepath import scrub_path_xml, text_has_path
 from oculto_scan.workbook import (
     WorkbookParseError,
     _attr,
@@ -117,6 +118,7 @@ _WHY = {
         "Autor, empresa e última modificação saem por padrão."
     ),
     "formula-constante": "Número fixo dentro de fórmula local foi preservado.",
+    "pasta-salva": "Ainda há pasta de salvamento ou caminho de consulta. Veja o detalhe na varredura da cópia.",
     "nome-definido": "Nome definido visível foi mantido.",
     "nome-definido-oculto": "Nome definido oculto foi mantido. Confira o destino no relatório.",
     "formato-oculto": "Formato que esconde o valor foi mantido. A limpeza não mexe no formato da célula.",
@@ -233,7 +235,7 @@ def clean_bytes(
         dropped.add(target.casefold())
     _mark_drawing_targets(parts, dropped)
 
-    names_removed, workbook_xml = _edit_workbook(
+    names_removed, workbook_xml, stripped_folder = _edit_workbook(
         parts,
         removed_sheets=removed_sheets,
         removed_indexes=removed_indexes,
@@ -251,14 +253,18 @@ def clean_bytes(
 
     _rewrite_rels(parts, dropped)
     _rewrite_content_types(parts, dropped, xlsx_main=stripped_vba)
-    packed = _pack(parts, max_mb=max_mb)
+    # Last edit. `fresh` is what gets zipped: the part dict can still hold the old bytes.
+    fresh = _scrub_path_parts(parts)
+    if stripped_folder or fresh:
+        paths = True
+    packed = _pack(parts, fresh=fresh, max_mb=max_mb)
 
     if _dropped_any(dropped, ("xl/comments", "xl/threadedcomments/", "xl/persons/")):
         removed.append("Comentários e notas removidos.")
     if identity:
         removed.append("Metadados de autor, empresa e última modificação removidos.")
     if paths:
-        removed.append("Caminho de rede ou de usuário removido dos metadados.")
+        removed.append("Caminho de rede, de usuário ou da pasta onde o arquivo foi salvo foi removido.")
     if personal_props:
         removed.append(
             "Propriedades personalizadas com dado pessoal removidas: " + ", ".join(personal_props) + "."
@@ -269,7 +275,10 @@ def clean_bytes(
             line += " Houve fórmula externa sem valor em cache: a célula ficou vazia."
         removed.append(line)
     if names_removed:
-        removed.append("Nome definido que apontava para vínculo externo ou para aba removida foi retirado.")
+        removed.append(
+            "Nome definido que apontava para vínculo externo, para um caminho de pasta "
+            "ou para aba removida foi retirado."
+        )
     for item in hidden_entries if remove_hidden else []:
         removed.append(
             f"Aba oculta removida: {_safe_label(item.name)}. "
@@ -298,7 +307,9 @@ def clean_bytes(
     if _has_hyperlink(parts):
         warnings.append("Hiperlink de célula foi mantido. O endereço fica para revisão humana.")
     if _has_part(parts, "connections.xml"):
-        warnings.append("Conexão de dados foi mantida. Revise manualmente.")
+        warnings.append(
+            "Conexão de dados foi mantida. O caminho legível sai; o restante fica para revisão manual."
+        )
     if _has_part(parts, "printersettings"):
         warnings.append("Configuração de impressora foi mantida. Ela pode guardar um nome de máquina.")
 
@@ -948,10 +959,10 @@ def _edit_workbook(
     removed_sheets: set[str],
     removed_indexes: set[int],
     remove_hidden: bool,
-) -> tuple[int, bytes | None]:
+) -> tuple[int, bytes | None, bool]:
     payload = _lookup(parts, "xl/workbook.xml")
     if payload is None:
-        return 0, None
+        return 0, None, False
     root = _parse_xml(payload)
     dirty = False
     removed_names = 0
@@ -974,7 +985,7 @@ def _edit_workbook(
             continue
         formula = (child.text or "").strip()
         local_id = _attr(child, "localSheetId")
-        drop_name = _name_is_external(formula)
+        drop_name = _name_is_external(formula) or text_has_path(formula)
         if local_id is not None and local_id.isdigit() and int(local_id) in removed_indexes:
             drop_name = True
         elif remove_hidden and _formula_mentions_sheet(formula, removed_sheets):
@@ -994,9 +1005,12 @@ def _edit_workbook(
         if _local(child.tag) == "definedNames" and len(list(child)) == 0 and child in list(parent):
             parent.remove(child)
             dirty = True
+    stripped_folder = _strip_abs_path(root)
+    if stripped_folder:
+        dirty = True
     if not dirty:
-        return removed_names, None
-    return removed_names, _serialize(root)
+        return removed_names, None, stripped_folder
+    return removed_names, _serialize(root), stripped_folder
 
 
 def _name_is_external(formula: str) -> bool:
@@ -1014,6 +1028,66 @@ def _set_attr(element, name: str, value: str) -> None:
             element.attrib[key] = value
             return
     element.attrib[name] = value
+
+
+def _strip_abs_path(root) -> bool:
+    """Remove x15ac:absPath and an AlternateContent that becomes empty."""
+    dirty = False
+    while True:
+        removed = False
+        for parent, child in _pairs(root):
+            local = _local(child.tag)
+            empty = not list(child) and not (child.text or "").strip()
+            drop = local == "absPath" or (local in {"Choice", "Fallback", "AlternateContent"} and empty)
+            if drop and child in list(parent):
+                parent.remove(child)
+                dirty = True
+                removed = True
+                break
+        if not removed:
+            return dirty
+
+
+_REL_TAG = re.compile(r"<Relationship\b[^>]*/>|<Relationship\b[^>]*>.*?</Relationship>", re.DOTALL)
+
+
+def _drop_path_relationships(text: str) -> str:
+    def keep(match: re.Match[str]) -> str:
+        return "" if text_has_path(match.group(0)) else match.group(0)
+
+    return _REL_TAG.sub(keep, text)
+
+
+def _scrub_path_parts(parts: dict[str, bytes]) -> dict[str, bytes]:
+    """Clear path text in connections, queries, templates and pivot links. Leave DataMashup bytes."""
+    fresh: dict[str, bytes] = {}
+    for name in list(parts):
+        folded = name.casefold()
+        interesting = (
+            folded.endswith("connections.xml")
+            or ("querytable" in folded and folded.endswith(".xml"))
+            or ("pivotcache" in folded and (folded.endswith(".xml") or folded.endswith(".rels")))
+            or folded == "docprops/app.xml"
+            or folded == "docprops/custom.xml"
+            or (folded.startswith("customxml/") and folded.endswith(".xml"))
+        )
+        if not interesting:
+            continue
+        try:
+            text = parts[name].decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        updated, did = scrub_path_xml(text)
+        if "pivotcache" in folded and folded.endswith(".rels"):
+            without_rels = _drop_path_relationships(updated)
+            did = did or without_rels != updated
+            updated = without_rels
+        if not did:
+            continue
+        raw = updated.encode("utf-8")
+        fresh[name] = raw
+        parts[name] = raw
+    return fresh
 
 
 def _scrub_properties(parts: dict[str, bytes], dropped: set[str]) -> tuple[bool, bool, list[str]]:
@@ -1166,13 +1240,15 @@ def _rewrite_content_types(parts: dict[str, bytes], dropped: set[str], *, xlsx_m
         parts[key] = _serialize(root)
 
 
-def _pack(parts: dict[str, bytes], *, max_mb: int | None) -> bytes:
+def _pack(
+    parts: dict[str, bytes], *, fresh: dict[str, bytes] | None = None, max_mb: int | None = None
+) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name in sorted(parts, key=_zip_order):
             if name.startswith("/") or ".." in name.split("/"):
                 raise WorkbookParseError("parte com caminho recusado")
-            archive.writestr(name, parts[name])
+            archive.writestr(name, fresh[name] if fresh and name in fresh else parts[name])
     data = buffer.getvalue()
     archive = open_office_bytes(data, max_mb=max_mb)
     archive.close()

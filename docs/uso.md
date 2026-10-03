@@ -21,6 +21,7 @@ Só `.xlsx` e `.xlsm`. A macro, quando existe, é **lida só se o extra estiver 
 | Environ, CallByName, ADODB.Stream, WinHttp na macro | médio |
 | Endereço, IP ou caminho dentro da macro | alto / médio |
 | Caminho UNC (`\\servidor\pasta`) no mapa da rede | alto |
+| Pasta onde a planilha foi salva (absPath, OneDrive, UNC, HyperlinkBase, modelo, conexão, consulta, Power Query ou fonte de tabela dinâmica) | médio (alto se mostrar usuário, OneDrive de empresa, SharePoint ou UNC) |
 | Usuário do Windows, caminho local, impressora, máquina ou servidor | médio |
 | SharePoint ou OneDrive (pasta interna é alto; só o site é médio) | alto / médio |
 | Metadado de autor, empresa, último editor | médio |
@@ -177,6 +178,7 @@ Por padrão a cópia perde:
 - dado pessoal em propriedade personalizada (CPF, e-mail, caminho, nome de autor)
 - vínculos `externalLinks` — a fórmula que dependia deles vira o valor em cache
 - caminho de rede ou de usuário nos metadados
+- pasta do último salvamento (`absPath`) e caminho legível em modelo, conexão, consulta e fonte externa de tabela dinâmica
 
 Aba, linha e coluna ocultas **ficam**. Apagar uma aba oculta pode quebrar uma fórmula que ainda aponta para ela. O relatório só avisa. `--remover-ocultas` apaga a aba, esvazia a linha ou a coluna oculta (elas ficam visíveis e vazias, sem renumerar o resto) e troca a fórmula dependente pelo valor em cache.
 
@@ -220,6 +222,8 @@ Quando o Excel grava um comentário em thread, ele também deixa uma nota antiga
 `oculto-scan diff ORIGINAL.xlsx RECEBIDO.xlsx` compara a planilha que você enviou com a que o colega devolveu. A comparação é pelo endereço da célula (`Proposta!C2` com `Proposta!C2`). Inserir ou apagar linhas no meio desloca o que está abaixo, e o relatório lista várias mudanças, uma por célula. A saída segue o mesmo estilo: `aba › célula › tipo de mudança`, com antes e depois. `--format json` continua mascarado. `--format html` gera uma página com colunas Antes/Depois e um quadro **Quem salvou**. Sem `--output`, o arquivo é `oculto-scan-diff.html` (ou `oculto-scan-diff-revelado.html` com `--show`).
 
 Quando os dois lados viram a mesma máscara (os dois `[n]`, por exemplo), a linha diz «valor alterado», com o tipo e o tamanho quando isso também mudou. Uma aba que só existe na planilha recebida e já veio oculta informa o estado de visibilidade.
+
+A pasta do último salvamento aparece lado a lado. Se o mesmo usuário do Windows, o mesmo OneDrive ou a mesma pasta raiz aparece nos dois arquivos, o texto diz que isso é indício de autoria comum entre licitantes, não prova.
 
 `--show` revela os valores no terminal e no HTML. No HTML, a faixa vermelha avisa para não enviar esse arquivo a terceiros. O JSON não revela. No CI, `--show` é recusado, como na varredura.
 

@@ -19,6 +19,7 @@ from defusedxml.common import DefusedXmlException
 
 from oculto_scan.models import Cell, Comment, DefinedName, Sheet, Workbook
 from oculto_scan.refs import col_to_index, index_to_col, split_cell
+from oculto_scan.savepath import collect_save_traces
 from oculto_scan.zipsafe import (
     MAX_RATIO,
     RATIO_MIN_UNCOMPRESSED,
@@ -1104,5 +1105,6 @@ def _workbook_from_parts(
         printer_texts=_printer_texts(parts),
         person_texts=_person_texts(parts),
         vba_bytes=_vba_bytes(parts) if has_vba else None,
+        save_traces=collect_save_traces(parts),
     )
     return workbook, targets, xf_formats

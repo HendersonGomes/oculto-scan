@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4
+
+- O relatório mostra a pasta onde o Excel salvou a planilha, e também HyperlinkBase, modelo, conexão, consulta e fonte externa de tabela dinâmica. Usuário do Windows e nome do OneDrive ou da empresa saem mascarados. O valor real só aparece com «Mostrar valores reais».
+- Na comparação, as duas pastas ficam lado a lado. O mesmo usuário ou a mesma pasta raiz é marcado como indício de autoria comum entre licitantes, não como prova.
+- A cópia limpa tira essa pasta e os outros caminhos cobertos que dá para apagar sem quebrar o arquivo. O bloco da consulta Power Query não é reescrito.
+
 ## 0.2.3
 
 - O relatório HTML deixa de listar cada célula. Achados do mesmo tipo viram uma linha com a quantidade e até 20 exemplos. O topo resume gravidade e tipo, e as seções abrem e fecham.

@@ -25,8 +25,18 @@ from oculto_scan.network import (
 )
 from oculto_scan.personal import personal_findings
 from oculto_scan.refs import contiguous_groups, format_group, index_to_col, reference_axes
+from oculto_scan.savepath import save_findings, save_hints
 from oculto_scan.secrets import find_high_entropy, find_secrets
 from oculto_scan.workbook import ScanCancelled, open_scan_session
+
+
+def _absorb_save(workbook: Workbook, file_label: str, hints: list, seen: set) -> None:
+    for hint in save_hints(workbook.save_traces, file_label):
+        key = (hint.kind, hint.evidence_raw.casefold(), hint.sheet, hint.cell)
+        if key in seen:
+            continue
+        seen.add(key)
+        hints.append(hint)
 
 
 def _pace(step: int, cancel) -> None:
@@ -71,6 +81,7 @@ def analyze(
     findings.extend(personal_findings(workbook, file_label, cancel=cancel))
     findings.extend(_secrets(workbook, file_label, entropy=entropy, cancel=cancel))
     hints = collect_network(workbook, file_label, macro_texts)
+    _absorb_save(workbook, file_label, hints, set())
     workbook.network_hints = hints
     findings.extend(promote_network(hints, findings))
     return _dedupe(findings)
@@ -136,6 +147,7 @@ def analyze_releasing(workbook: Workbook, fill, file_label: str, *, entropy: boo
     findings.extend(_secrets_from_blobs(secrets, file_label, entropy=entropy, cancel=cancel))
     findings.extend(_secrets_from_blobs(_secret_blobs_meta(workbook), file_label, entropy=entropy, cancel=cancel))
     absorb_hints(_spots_after(workbook, macro_texts), file_label=file_label, hints=hints, seen=seen)
+    _absorb_save(workbook, file_label, hints, seen)
     workbook.network_hints = hints
     findings.extend(promote_network(hints, findings))
     return _dedupe(findings)
@@ -373,7 +385,7 @@ def _dedupe(findings: list[Finding]) -> list[Finding]:
 
 
 def _structure(workbook: Workbook, file_label: str, *, with_concealment: bool = True) -> list[Finding]:
-    findings: list[Finding] = []
+    findings: list[Finding] = save_findings(workbook.save_traces, file_label)
     for sheet in workbook.sheets:
         if sheet.state == "hidden":
             findings.append(

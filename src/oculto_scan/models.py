@@ -88,6 +88,17 @@ class Sheet:
         return any(start <= col <= end for start, end in self.hidden_col_spans)
 
 
+@dataclass(frozen=True)
+class SaveTrace:
+    """A folder or file path stored in the workbook, not opened."""
+
+    raw: str
+    source: str
+    user: str = ""
+    company: str = ""
+    risk: str = "medio"
+
+
 @dataclass
 class NetworkHint:
     """One internal-network signal. The report groups these in their own section."""
@@ -122,6 +133,7 @@ class Workbook:
     person_texts: list[str] = field(default_factory=list)
     vba_bytes: bytes | None = None
     network_hints: list[NetworkHint] = field(default_factory=list)
+    save_traces: list[SaveTrace] = field(default_factory=list)
 
     def sheet_by_name(self, name: str) -> Sheet | None:
         folded = name.casefold()
